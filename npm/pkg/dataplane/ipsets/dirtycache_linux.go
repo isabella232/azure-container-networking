@@ -112,7 +112,10 @@ func (dc *memberAwareDirtyCache) isSetToDelete(setName string) bool {
 func (dc *memberAwareDirtyCache) getOriginalMembers(setName string) map[string]struct{} {
 	info, ok := dc.toAddOrUpdateCache[setName]
 	if !ok {
-		return nil
+		info, ok = dc.toDeleteCache[setName]
+		if !ok {
+			return nil
+		}
 	}
 	members := make(map[string]struct{}, len(info.members))
 	for member := range info.members {

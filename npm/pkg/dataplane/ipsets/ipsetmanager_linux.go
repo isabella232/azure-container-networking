@@ -307,13 +307,13 @@ func (iMgr *IPSetManager) fileCreatorForApply(maxTryCount int, saveFile []byte) 
 				}
 			}
 		} else {
-			for setName, set := range set.MemberIPSets {
-				if _, ok := originalMembers[setName]; ok {
+			for memberName, memberSet := range set.MemberIPSets {
+				if _, ok := originalMembers[memberName]; ok {
 					// remove from members so we don't try to delete it later
-					delete(originalMembers, setName)
+					delete(originalMembers, memberName)
 				} else {
 					// add the member since it didn't exist before
-					iMgr.addMemberForApply(creator, set, sectionID, set.HashedName)
+					iMgr.addMemberForApply(creator, set, sectionID, memberSet.HashedName)
 				}
 			}
 		}
