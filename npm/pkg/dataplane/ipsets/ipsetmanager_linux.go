@@ -317,8 +317,14 @@ func (iMgr *IPSetManager) fileCreatorForApply(maxTryCount int, saveFile []byte) 
 				}
 			}
 		}
+		// originalMembers now contains only the members that need to be deleted
 		for member := range originalMembers {
-			iMgr.deleteMemberForApply(creator, set, sectionID, member)
+			if set.Kind == HashSet {
+				iMgr.deleteMemberForApply(creator, set, sectionID, member)
+			} else {
+				memberSet := iMgr.setMap[member]
+				iMgr.deleteMemberForApply(creator, set, sectionID, memberSet.HashedName)
+			}
 		}
 	}
 
