@@ -1,39 +1,34 @@
 package ipsets
 
-type memberAwareDirtyCache struct {
-	toAddOrUpdateCache map[string]*dirtyInfo
-	toDeleteCache      map[string]*dirtyInfo
-}
+import "fmt"
 
-type dirtyInfo struct {
-	setType SetType
-	members map[string]struct{}
+type memberAwareDirtyCache struct {
+	// map of prefixed set names to original members
+	toAddOrUpdateCache map[string]map[string]struct{}
+	// map of prefixed set names to original members
+	toDeleteCache map[string]map[string]struct{}
 }
 
 func newDirtyCache() dirtyCacheMaintainer {
 	return &memberAwareDirtyCache{
-		toAddOrUpdateCache: make(map[string]*dirtyInfo),
-		toDeleteCache:      make(map[string]*dirtyInfo),
+		toAddOrUpdateCache: make(map[string]map[string]struct{}),
+		toDeleteCache:      make(map[string]map[string]struct{}),
 	}
 }
 
 func (dc *memberAwareDirtyCache) reset() {
-	dc.toAddOrUpdateCache = make(map[string]*dirtyInfo)
-	dc.toDeleteCache = make(map[string]*dirtyInfo)
+	dc.toAddOrUpdateCache = make(map[string]map[string]struct{})
+	dc.toDeleteCache = make(map[string]map[string]struct{})
 }
 
 func (dc *memberAwareDirtyCache) create(newSet *IPSet) {
 	setName := newSet.Name
 	if _, ok := dc.toAddOrUpdateCache[setName]; ok {
-		// NOTE: could throw error if setType is different
 		return
 	}
 	info, ok := dc.toDeleteCache[setName]
 	if !ok {
-		info = &dirtyInfo{
-			setType: newSet.Type,
-			members: make(map[string]struct{}),
-		}
+		info = make(map[string]struct{})
 	}
 	dc.toAddOrUpdateCache[setName] = info
 	delete(dc.toDeleteCache, setName)
@@ -47,16 +42,15 @@ func (dc *memberAwareDirtyCache) delete(originalSet *IPSet) {
 	putIntoAndRemoveFromOther(originalSet, dc.toDeleteCache, dc.toAddOrUpdateCache)
 }
 
-func putIntoAndRemoveFromOther(originalSet *IPSet, intoCache, fromCache map[string]*dirtyInfo) {
+func putIntoAndRemoveFromOther(originalSet *IPSet, intoCache, fromCache map[string]map[string]struct{}) {
 	setName := originalSet.Name
 	if _, ok := intoCache[setName]; ok {
-		// NOTE: could throw error if setType is different
 		return
 	}
-	info, ok := fromCache[setName]
+	members, ok := fromCache[setName]
 	if !ok {
 		setType := originalSet.Type
-		members := make(map[string]struct{})
+		members = make(map[string]struct{})
 		if setType.getSetKind() == HashSet {
 			for member := range originalSet.IPPodKey {
 				members[member] = struct{}{}
@@ -66,12 +60,8 @@ func putIntoAndRemoveFromOther(originalSet *IPSet, intoCache, fromCache map[stri
 				members[memberName] = struct{}{}
 			}
 		}
-		info = &dirtyInfo{
-			setType: setType,
-			members: members,
-		}
 	}
-	intoCache[setName] = info
+	intoCache[setName] = members
 	delete(fromCache, setName)
 }
 
@@ -109,17 +99,21 @@ func (dc *memberAwareDirtyCache) isSetToDelete(setName string) bool {
 	return ok
 }
 
+func (dc *memberAwareDirtyCache) printAddOrUpdateCache() string {
+	return fmt.Sprintf("%+v", dc.toAddOrUpdateCache)
+}
+
+func (dc *memberAwareDirtyCache) printDeleteCache() string {
+	return fmt.Sprintf("%+v", dc.toDeleteCache)
+}
+
 func (dc *memberAwareDirtyCache) getOriginalMembers(setName string) map[string]struct{} {
-	info, ok := dc.toAddOrUpdateCache[setName]
+	members, ok := dc.toAddOrUpdateCache[setName]
 	if !ok {
-		info, ok = dc.toDeleteCache[setName]
+		members, ok = dc.toDeleteCache[setName]
 		if !ok {
 			return nil
 		}
-	}
-	members := make(map[string]struct{}, len(info.members))
-	for member := range info.members {
-		members[member] = struct{}{}
 	}
 	return members
 }

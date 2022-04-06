@@ -72,6 +72,14 @@ func (dc *nameOnlyDirtyCache) isSetToDelete(setName string) bool {
 	return ok
 }
 
+func (dc *nameOnlyDirtyCache) printAddOrUpdateCache() string {
+	return fmt.Sprintf("%+v", dc.toAddOrUpdateCache)
+}
+
+func (dc *nameOnlyDirtyCache) printDeleteCache() string {
+	return fmt.Sprintf("%+v", dc.toDeleteCache)
+}
+
 func (dc *nameOnlyDirtyCache) getOriginalMembers(_ string) map[string]struct{} {
 	return nil
 }

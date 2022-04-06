@@ -22,6 +22,10 @@ type dirtyCacheMaintainer interface {
 	isSetToAddOrUpdate(setName string) bool
 	// isSetToDelete returns true if the set is dirty and should be deleted
 	isSetToDelete(setName string) bool
+	// printAddOrUpdateCache returns a string representation of the add/update cache
+	printAddOrUpdateCache() string
+	// printDeleteCache returns a string representation of the delete cache
+	printDeleteCache() string
 	// getOriginalMembers returns the original members of the set before it was dirty.
 	// members are either IPs, CIDRs, IP-Port pairs, or prefixed set names if the parent is a list
 	getOriginalMembers(setName string) map[string]struct{}
