@@ -1,5 +1,7 @@
 package ipsets
 
+import "fmt"
+
 type nameOnlyDirtyCache struct {
 	toAddOrUpdateCache map[string]struct{}
 	toDeleteCache      map[string]struct{}
@@ -31,7 +33,6 @@ func (dc *nameOnlyDirtyCache) delete(originalSet *IPSet) {
 
 func putIntoAndRemoveFromOther(set *IPSet, intoCache, fromCache map[string]struct{}) {
 	if _, ok := intoCache[set.Name]; ok {
-		// NOTE: could throw error if setType is different
 		return
 	}
 	intoCache[set.Name] = struct{}{}
