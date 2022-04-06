@@ -1,5 +1,21 @@
 package ipsets
 
+import (
+	"fmt"
+	"regexp"
+	"sort"
+	"strings"
+	"testing"
+
+	"github.com/Azure/azure-container-networking/common"
+	"github.com/Azure/azure-container-networking/npm/metrics"
+	"github.com/Azure/azure-container-networking/npm/metrics/promutil"
+	dptestutils "github.com/Azure/azure-container-networking/npm/pkg/dataplane/testutils"
+	"github.com/Azure/azure-container-networking/npm/util"
+	testutils "github.com/Azure/azure-container-networking/test/utils"
+	"github.com/stretchr/testify/require"
+)
+
 const (
 	saveResult = "create test-list1 list:set size 8\nadd test-list1 test-list2"
 
@@ -15,628 +31,628 @@ azure-npm-777777`
 
 var resetIPSetsListOutput = []byte(resetIPSetsListOutputString)
 
+func TestIPSetSave(t *testing.T) {
+	calls := []testutils.TestCmd{
+		{Cmd: ipsetSaveStringSlice, PipedToCommand: true},
+		{Cmd: []string{"grep", "azure-npm-"}, Stdout: saveResult},
+	}
+	ioshim := common.NewMockIOShim(calls)
+	defer ioshim.VerifyCalls(t, calls)
+	iMgr := NewIPSetManager(applyAlwaysCfg, ioshim)
+
+	output, err := iMgr.ipsetSave()
+	require.NoError(t, err)
+	require.Equal(t, saveResult, string(output))
+}
+
+func TestIPSetSaveNoMatch(t *testing.T) {
+	calls := []testutils.TestCmd{
+		{Cmd: ipsetSaveStringSlice, ExitCode: 1},
+		{Cmd: []string{"grep", "azure-npm-"}},
+	}
+	ioshim := common.NewMockIOShim(calls)
+	defer ioshim.VerifyCalls(t, calls)
+	iMgr := NewIPSetManager(applyAlwaysCfg, ioshim)
+
+	output, err := iMgr.ipsetSave()
+	require.NoError(t, err)
+	require.Nil(t, output)
+}
+
+// FIXME delete
+func TestFileCreator(t *testing.T) {
+	ioshim := common.NewMockIOShim(nil)
+	iMgr := NewIPSetManager(applyAlwaysCfg, ioshim)
+
+	iMgr.CreateIPSets([]*IPSetMetadata{namespaceSet})
+	creator := iMgr.fileCreatorForApply(0, nil)
+	fmt.Println(creator.ToString())
+
+	// 	actualLines := testAndSortRestoreFileString(t, creator.ToString())
+
+	// 	expectedLines := []string{
+	// 		fmt.Sprintf("-N %s --exist nethash", TestNSSet.HashedName),
+	// 		fmt.Sprintf("-N %s --exist nethash", TestKeyPodSet.HashedName),
+	// 		fmt.Sprintf("-N %s --exist nethash", TestKVPodSet.HashedName),
+	// 		fmt.Sprintf("-N %s --exist hash:ip,port", TestNamedportSet.HashedName),
+	// 		fmt.Sprintf("-N %s --exist nethash maxelem 4294967295", TestCIDRSet.HashedName),
+	// 		fmt.Sprintf("-N %s --exist setlist", TestKeyNSList.HashedName),
+	// 		fmt.Sprintf("-N %s --exist setlist", TestKVNSList.HashedName),
+	// 		fmt.Sprintf("-N %s --exist setlist", TestNestedLabelList.HashedName),
+	// 		fmt.Sprintf("-A %s 10.0.0.0", TestNSSet.HashedName),
+	// 		fmt.Sprintf("-A %s 10.0.0.1", TestNSSet.HashedName),
+	// 		fmt.Sprintf("-A %s 10.0.0.5", TestKeyPodSet.HashedName),
+	// 		fmt.Sprintf("-A %s %s", TestKeyNSList.HashedName, TestNSSet.HashedName),
+	// 		fmt.Sprintf("-A %s %s", TestKeyNSList.HashedName, TestKeyPodSet.HashedName),
+	// 		fmt.Sprintf("-A %s %s", TestKVNSList.HashedName, TestKVPodSet.HashedName),
+	// 		"",
+	// 	}
+	// 	sortedExpectedLines := testAndSortRestoreFileLines(t, expectedLines)
+
+	// 	dptestutils.AssertEqualLines(t, sortedExpectedLines, actualLines)
+	// 	wasFileAltered, err := creator.RunCommandOnceWithFile("ipset", "restore")
+	// 	require.NoError(t, err, "ipset restore should be successful")
+	// 	require.False(t, wasFileAltered, "file should not be altered")
+}
+
 // TODO test that a reconcile list is updated for all the TestFailure UTs
 // TODO same exact TestFailure UTs for unknown errors
 
 // FIXME uncomment
-// func TestApplyIPSets(t *testing.T) {
-// 	type args struct {
-// 		toAddUpdateSets []*IPSetMetadata
-// 		toDeleteSets    []*IPSetMetadata
-// 		commandError    bool
-// 	}
-// 	tests := []struct {
-// 		name              string
-// 		args              args
-// 		expectedExecCount int
-// 		wantErr           bool
-// 	}{
-// 		{
-// 			name: "nothing to update",
-// 			args: args{
-// 				toAddUpdateSets: nil,
-// 				toDeleteSets:    nil,
-// 				commandError:    false,
-// 			},
-// 			expectedExecCount: 0,
-// 			wantErr:           false,
-// 		},
-// 		{
-// 			name: "success with just add",
-// 			args: args{
-// 				toAddUpdateSets: []*IPSetMetadata{namespaceSet},
-// 				toDeleteSets:    nil,
-// 				commandError:    false,
-// 			},
-// 			expectedExecCount: 1,
-// 			wantErr:           false,
-// 		},
-// 		{
-// 			name: "success with just delete",
-// 			args: args{
-// 				toAddUpdateSets: []*IPSetMetadata{namespaceSet},
-// 				toDeleteSets:    nil,
-// 				commandError:    false,
-// 			},
-// 			expectedExecCount: 1,
-// 			wantErr:           false,
-// 		},
-// 		{
-// 			name: "success with add and delete",
-// 			args: args{
-// 				toAddUpdateSets: []*IPSetMetadata{namespaceSet},
-// 				toDeleteSets:    []*IPSetMetadata{keyLabelOfPodSet},
-// 				commandError:    false,
-// 			},
-// 			expectedExecCount: 1,
-// 			wantErr:           false,
-// 		},
-// 		{
-// 			name: "set is in both delete and add/update cache",
-// 			args: args{
-// 				toAddUpdateSets: []*IPSetMetadata{namespaceSet},
-// 				toDeleteSets:    []*IPSetMetadata{namespaceSet},
-// 				commandError:    false,
-// 			},
-// 			expectedExecCount: 1,
-// 			wantErr:           false,
-// 		},
-// 		{
-// 			name: "apply error",
-// 			args: args{
-// 				toAddUpdateSets: []*IPSetMetadata{namespaceSet},
-// 				toDeleteSets:    []*IPSetMetadata{keyLabelOfPodSet},
-// 				commandError:    true,
-// 			},
-// 			expectedExecCount: 1,
-// 			wantErr:           true,
-// 		},
-// 	}
-// 	for _, tt := range tests {
-// 		tt := tt
-// 		t.Run(tt.name, func(t *testing.T) {
-// 			metrics.ReinitializeAll()
-// 			calls := GetApplyIPSetsTestCalls(tt.args.toAddUpdateSets, tt.args.toDeleteSets)
-// 			if tt.args.commandError {
-// 				// add an error to the last call (the ipset-restore call)
-// 				// this would potentially cause problems if we used pointers to the TestCmds
-// 				require.Greater(t, len(calls), 0)
-// 				calls[len(calls)-1].ExitCode = 1
-// 				// then add errors as many times as we retry
-// 				for i := 1; i < maxTryCount; i++ {
-// 					calls = append(calls, testutils.TestCmd{Cmd: ipsetRestoreStringSlice, ExitCode: 1})
-// 				}
-// 			}
-// 			ioShim := common.NewMockIOShim(calls)
-// 			defer ioShim.VerifyCalls(t, calls)
-// 			iMgr := NewIPSetManager(applyAlwaysCfg, ioShim)
-// 			iMgr.CreateIPSets(tt.args.toAddUpdateSets)
-// 			for _, set := range tt.args.toDeleteSets {
-// 				iMgr.dirtyCache.delete(NewIPSet(set))
-// 			}
-// 			err := iMgr.ApplyIPSets()
+func TestApplyIPSets(t *testing.T) {
+	type args struct {
+		toAddUpdateSets []*IPSetMetadata
+		toDeleteSets    []*IPSetMetadata
+		commandError    bool
+	}
+	tests := []struct {
+		name              string
+		args              args
+		expectedExecCount int
+		wantErr           bool
+	}{
+		{
+			name: "nothing to update",
+			args: args{
+				toAddUpdateSets: nil,
+				toDeleteSets:    nil,
+				commandError:    false,
+			},
+			expectedExecCount: 0,
+			wantErr:           false,
+		},
+		{
+			name: "success with just add",
+			args: args{
+				toAddUpdateSets: []*IPSetMetadata{namespaceSet},
+				toDeleteSets:    nil,
+				commandError:    false,
+			},
+			expectedExecCount: 1,
+			wantErr:           false,
+		},
+		{
+			name: "success with just delete",
+			args: args{
+				toAddUpdateSets: []*IPSetMetadata{namespaceSet},
+				toDeleteSets:    nil,
+				commandError:    false,
+			},
+			expectedExecCount: 1,
+			wantErr:           false,
+		},
+		{
+			name: "success with add and delete",
+			args: args{
+				toAddUpdateSets: []*IPSetMetadata{namespaceSet},
+				toDeleteSets:    []*IPSetMetadata{keyLabelOfPodSet},
+				commandError:    false,
+			},
+			expectedExecCount: 1,
+			wantErr:           false,
+		},
+		{
+			name: "set is in both delete and add/update cache",
+			args: args{
+				toAddUpdateSets: []*IPSetMetadata{namespaceSet},
+				toDeleteSets:    []*IPSetMetadata{namespaceSet},
+				commandError:    false,
+			},
+			expectedExecCount: 1,
+			wantErr:           false,
+		},
+		{
+			name: "apply error",
+			args: args{
+				toAddUpdateSets: []*IPSetMetadata{namespaceSet},
+				toDeleteSets:    []*IPSetMetadata{keyLabelOfPodSet},
+				commandError:    true,
+			},
+			expectedExecCount: 1,
+			wantErr:           true,
+		},
+	}
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			metrics.ReinitializeAll()
+			calls := GetApplyIPSetsTestCalls(tt.args.toAddUpdateSets, tt.args.toDeleteSets)
+			if tt.args.commandError {
+				// add an error to the last call (the ipset-restore call)
+				// this would potentially cause problems if we used pointers to the TestCmds
+				require.Greater(t, len(calls), 0)
+				calls[len(calls)-1].ExitCode = 1
+				// then add errors as many times as we retry
+				for i := 1; i < maxTryCount; i++ {
+					calls = append(calls, testutils.TestCmd{Cmd: ipsetRestoreStringSlice, ExitCode: 1})
+				}
+			}
+			ioShim := common.NewMockIOShim(calls)
+			defer ioShim.VerifyCalls(t, calls)
+			iMgr := NewIPSetManager(applyAlwaysCfg, ioShim)
+			iMgr.CreateIPSets(tt.args.toAddUpdateSets)
+			for _, set := range tt.args.toDeleteSets {
+				iMgr.dirtyCache.delete(NewIPSet(set))
+			}
+			err := iMgr.ApplyIPSets()
 
-// 			// cache behavior is currently undefined if there's an apply error
-// 			if tt.wantErr {
-// 				require.Error(t, err)
-// 			} else {
-// 				require.NoError(t, err)
-// 				cache := make([]setMembers, 0)
-// 				for _, set := range tt.args.toAddUpdateSets {
-// 					cache = append(cache, setMembers{metadata: set, members: nil})
-// 				}
-// 				assertExpectedInfo(t, iMgr, &expectedInfo{
-// 					mainCache:        cache,
-// 					toAddUpdateCache: nil,
-// 					toDeleteCache:    nil,
-// 					setsForKernel:    nil,
-// 				})
-// 			}
+			// cache behavior is currently undefined if there's an apply error
+			if tt.wantErr {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+				cache := make([]setMembers, 0)
+				for _, set := range tt.args.toAddUpdateSets {
+					cache = append(cache, setMembers{metadata: set, members: nil})
+				}
+				assertExpectedInfo(t, iMgr, &expectedInfo{
+					mainCache:        cache,
+					toAddUpdateCache: nil,
+					toDeleteCache:    nil,
+					setsForKernel:    nil,
+				})
+			}
 
-// 			execCount, err := metrics.GetIPSetExecCount()
-// 			promutil.NotifyIfErrors(t, err)
-// 			require.Equal(t, tt.expectedExecCount, execCount)
-// 		})
-// 	}
-// }
+			execCount, err := metrics.GetIPSetExecCount()
+			promutil.NotifyIfErrors(t, err)
+			require.Equal(t, tt.expectedExecCount, execCount)
+		})
+	}
+}
 
-// func TestDestroyNPMIPSetsCreatorSuccess(t *testing.T) {
-// 	calls := []testutils.TestCmd{fakeRestoreSuccessCommand}
-// 	ioshim := common.NewMockIOShim(calls)
-// 	defer ioshim.VerifyCalls(t, calls)
-// 	iMgr := NewIPSetManager(applyAlwaysCfg, ioshim)
-// 	creator, numSets, destroyFailureCount := iMgr.fileCreatorForReset(resetIPSetsListOutput)
-// 	actualLines := strings.Split(creator.ToString(), "\n")
-// 	expectedLines := []string{
-// 		"-F azure-npm-123456",
-// 		"-F azure-npm-987654",
-// 		"-F azure-npm-777777",
-// 		"-X azure-npm-123456",
-// 		"-X azure-npm-987654",
-// 		"-X azure-npm-777777",
-// 		"",
-// 	}
-// 	dptestutils.AssertEqualLines(t, expectedLines, actualLines)
-// 	require.Equal(t, resetIPSetsNumGreppedSets, numSets, "got unexpected num sets")
-// 	wasModified, err := creator.RunCommandOnceWithFile("ipset", "restore")
-// 	require.False(t, wasModified)
-// 	require.NoError(t, err)
-// 	require.Equal(t, 0, *destroyFailureCount, "got unexpected failure count")
-// }
+func TestDestroyNPMIPSetsCreatorSuccess(t *testing.T) {
+	calls := []testutils.TestCmd{fakeRestoreSuccessCommand}
+	ioshim := common.NewMockIOShim(calls)
+	defer ioshim.VerifyCalls(t, calls)
+	iMgr := NewIPSetManager(applyAlwaysCfg, ioshim)
+	creator, numSets, destroyFailureCount := iMgr.fileCreatorForReset(resetIPSetsListOutput)
+	actualLines := strings.Split(creator.ToString(), "\n")
+	expectedLines := []string{
+		"-F azure-npm-123456",
+		"-F azure-npm-987654",
+		"-F azure-npm-777777",
+		"-X azure-npm-123456",
+		"-X azure-npm-987654",
+		"-X azure-npm-777777",
+		"",
+	}
+	dptestutils.AssertEqualLines(t, expectedLines, actualLines)
+	require.Equal(t, resetIPSetsNumGreppedSets, numSets, "got unexpected num sets")
+	wasModified, err := creator.RunCommandOnceWithFile("ipset", "restore")
+	require.False(t, wasModified)
+	require.NoError(t, err)
+	require.Equal(t, 0, *destroyFailureCount, "got unexpected failure count")
+}
 
-// func TestDestroyNPMIPSetsCreatorErrorHandling(t *testing.T) {
-// 	tests := []struct {
-// 		name                 string
-// 		call                 testutils.TestCmd
-// 		expectedLines        []string
-// 		expectedFailureCount int
-// 	}{
-// 		{
-// 			name: "set doesn't exist on flush",
-// 			call: testutils.TestCmd{
-// 				Cmd:      ipsetRestoreStringSlice,
-// 				Stdout:   "Error in line 2: The set with the given name does not exist",
-// 				ExitCode: 1,
-// 			},
-// 			expectedLines: []string{
-// 				"-F azure-npm-777777",
-// 				"-X azure-npm-123456",
-// 				"-X azure-npm-777777",
-// 				"",
-// 			},
-// 			expectedFailureCount: 0,
-// 		},
-// 		{
-// 			name: "some other error on flush",
-// 			call: testutils.TestCmd{
-// 				Cmd:      ipsetRestoreStringSlice,
-// 				Stdout:   "Error in line 2: for some other error",
-// 				ExitCode: 1,
-// 			},
-// 			expectedLines: []string{
-// 				"-F azure-npm-777777",
-// 				"-X azure-npm-123456",
-// 				"-X azure-npm-777777",
-// 				"",
-// 			},
-// 			expectedFailureCount: 1,
-// 		},
-// 		{
-// 			name: "set doesn't exist on destroy",
-// 			call: testutils.TestCmd{
-// 				Cmd:      ipsetRestoreStringSlice,
-// 				Stdout:   "Error in line 5: The set with the given name does not exist",
-// 				ExitCode: 1,
-// 			},
-// 			expectedLines: []string{
-// 				"-X azure-npm-777777",
-// 				"",
-// 			},
-// 			expectedFailureCount: 0,
-// 		},
-// 		{
-// 			name: "some other error on destroy",
-// 			call: testutils.TestCmd{
-// 				Cmd:      ipsetRestoreStringSlice,
-// 				Stdout:   "Error in line 5: some other error",
-// 				ExitCode: 1,
-// 			},
-// 			expectedLines: []string{
-// 				"-X azure-npm-777777",
-// 				"",
-// 			},
-// 			expectedFailureCount: 1,
-// 		},
-// 	}
-// 	for _, tt := range tests {
-// 		tt := tt
-// 		t.Run(tt.name, func(t *testing.T) {
-// 			calls := []testutils.TestCmd{tt.call}
-// 			ioshim := common.NewMockIOShim(calls)
-// 			defer ioshim.VerifyCalls(t, calls)
-// 			iMgr := NewIPSetManager(applyAlwaysCfg, ioshim)
-// 			creator, numSets, destroyFailureCount := iMgr.fileCreatorForReset(resetIPSetsListOutput)
-// 			require.Equal(t, resetIPSetsNumGreppedSets, numSets, "got unexpected num sets")
-// 			wasModified, err := creator.RunCommandOnceWithFile("ipset", "restore")
-// 			require.True(t, wasModified)
-// 			require.Error(t, err)
-// 			actualLines := strings.Split(creator.ToString(), "\n")
-// 			dptestutils.AssertEqualLines(t, tt.expectedLines, actualLines)
-// 			require.Equal(t, tt.expectedFailureCount, *destroyFailureCount, "got unexpected failure count")
-// 		})
-// 	}
-// }
+func TestDestroyNPMIPSetsCreatorErrorHandling(t *testing.T) {
+	tests := []struct {
+		name                 string
+		call                 testutils.TestCmd
+		expectedLines        []string
+		expectedFailureCount int
+	}{
+		{
+			name: "set doesn't exist on flush",
+			call: testutils.TestCmd{
+				Cmd:      ipsetRestoreStringSlice,
+				Stdout:   "Error in line 2: The set with the given name does not exist",
+				ExitCode: 1,
+			},
+			expectedLines: []string{
+				"-F azure-npm-777777",
+				"-X azure-npm-123456",
+				"-X azure-npm-777777",
+				"",
+			},
+			expectedFailureCount: 0,
+		},
+		{
+			name: "some other error on flush",
+			call: testutils.TestCmd{
+				Cmd:      ipsetRestoreStringSlice,
+				Stdout:   "Error in line 2: for some other error",
+				ExitCode: 1,
+			},
+			expectedLines: []string{
+				"-F azure-npm-777777",
+				"-X azure-npm-123456",
+				"-X azure-npm-777777",
+				"",
+			},
+			expectedFailureCount: 1,
+		},
+		{
+			name: "set doesn't exist on destroy",
+			call: testutils.TestCmd{
+				Cmd:      ipsetRestoreStringSlice,
+				Stdout:   "Error in line 5: The set with the given name does not exist",
+				ExitCode: 1,
+			},
+			expectedLines: []string{
+				"-X azure-npm-777777",
+				"",
+			},
+			expectedFailureCount: 0,
+		},
+		{
+			name: "some other error on destroy",
+			call: testutils.TestCmd{
+				Cmd:      ipsetRestoreStringSlice,
+				Stdout:   "Error in line 5: some other error",
+				ExitCode: 1,
+			},
+			expectedLines: []string{
+				"-X azure-npm-777777",
+				"",
+			},
+			expectedFailureCount: 1,
+		},
+	}
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			calls := []testutils.TestCmd{tt.call}
+			ioshim := common.NewMockIOShim(calls)
+			defer ioshim.VerifyCalls(t, calls)
+			iMgr := NewIPSetManager(applyAlwaysCfg, ioshim)
+			creator, numSets, destroyFailureCount := iMgr.fileCreatorForReset(resetIPSetsListOutput)
+			require.Equal(t, resetIPSetsNumGreppedSets, numSets, "got unexpected num sets")
+			wasModified, err := creator.RunCommandOnceWithFile("ipset", "restore")
+			require.True(t, wasModified)
+			require.Error(t, err)
+			actualLines := strings.Split(creator.ToString(), "\n")
+			dptestutils.AssertEqualLines(t, tt.expectedLines, actualLines)
+			require.Equal(t, tt.expectedFailureCount, *destroyFailureCount, "got unexpected failure count")
+		})
+	}
+}
 
-// func TestDestroyNPMIPSets(t *testing.T) {
-// 	tests := []struct {
-// 		name    string
-// 		calls   []testutils.TestCmd
-// 		wantErr bool
-// 	}{
-// 		{
-// 			name: "success with no results from grep",
-// 			calls: []testutils.TestCmd{
-// 				{Cmd: []string{"ipset", "list", "--name"}, PipedToCommand: true},
-// 				{Cmd: []string{"grep", "azure-npm-"}, ExitCode: 1},
-// 			},
-// 			wantErr: false,
-// 		},
-// 		{
-// 			name: "successfully delete sets",
-// 			calls: []testutils.TestCmd{
-// 				{Cmd: []string{"ipset", "list", "--name"}, PipedToCommand: true},
-// 				{Cmd: []string{"grep", "azure-npm-"}, Stdout: resetIPSetsListOutputString},
-// 				fakeRestoreSuccessCommand,
-// 			},
-// 			wantErr: false,
-// 		},
-// 		{
-// 			name: "grep error",
-// 			calls: []testutils.TestCmd{
-// 				{Cmd: []string{"ipset", "list", "--name"}, HasStartError: true, PipedToCommand: true, ExitCode: 1},
-// 				{Cmd: []string{"grep", "azure-npm-"}},
-// 			},
-// 			wantErr: true,
-// 		},
-// 		{
-// 			name: "restore error from max tries",
-// 			calls: []testutils.TestCmd{
-// 				{Cmd: []string{"ipset", "list", "--name"}, PipedToCommand: true},
-// 				{Cmd: []string{"grep", "azure-npm-"}, Stdout: resetIPSetsListOutputString},
-// 				{Cmd: ipsetRestoreStringSlice, ExitCode: 1},
-// 				{Cmd: ipsetRestoreStringSlice, ExitCode: 1},
-// 				{Cmd: ipsetRestoreStringSlice, ExitCode: 1},
-// 			},
-// 			wantErr: true,
-// 		},
-// 		{
-// 			name: "successfully restore, but fail to flush/destroy 1 set since the set doesn't exist when flushing",
-// 			calls: []testutils.TestCmd{
-// 				{Cmd: []string{"ipset", "list", "--name"}, PipedToCommand: true},
-// 				{Cmd: []string{"grep", "azure-npm-"}, Stdout: resetIPSetsListOutputString},
-// 				{
-// 					Cmd:      ipsetRestoreStringSlice,
-// 					Stdout:   "Error in line 2: The set with the given name does not exist",
-// 					ExitCode: 1,
-// 				},
-// 				fakeRestoreSuccessCommand,
-// 			},
-// 			wantErr: false,
-// 		},
-// 		{
-// 			name: "successfully restore, but fail to flush/destroy 1 set due to other flush error",
-// 			calls: []testutils.TestCmd{
-// 				{Cmd: []string{"ipset", "list", "--name"}, PipedToCommand: true},
-// 				{Cmd: []string{"grep", "azure-npm-"}, Stdout: resetIPSetsListOutputString},
-// 				{
-// 					Cmd:      ipsetRestoreStringSlice,
-// 					Stdout:   "Error in line 2: for some other error",
-// 					ExitCode: 1,
-// 				},
-// 				fakeRestoreSuccessCommand,
-// 			},
-// 			wantErr: false,
-// 		},
-// 		{
-// 			name: "successfully restore, but fail to destroy 1 set since the set doesn't exist when destroying",
-// 			calls: []testutils.TestCmd{
-// 				{Cmd: []string{"ipset", "list", "--name"}, PipedToCommand: true},
-// 				{Cmd: []string{"grep", "azure-npm-"}, Stdout: resetIPSetsListOutputString},
-// 				{
-// 					Cmd:      ipsetRestoreStringSlice,
-// 					Stdout:   "Error in line 5: The set with the given name does not exist",
-// 					ExitCode: 1,
-// 				},
-// 				fakeRestoreSuccessCommand,
-// 			},
-// 			wantErr: false,
-// 		},
-// 		{
-// 			name: "successfully restore, but fail to destroy 1 set due to other destroy error",
-// 			calls: []testutils.TestCmd{
-// 				{Cmd: []string{"ipset", "list", "--name"}, PipedToCommand: true},
-// 				{Cmd: []string{"grep", "azure-npm-"}, Stdout: resetIPSetsListOutputString},
-// 				{
-// 					Cmd:      ipsetRestoreStringSlice,
-// 					Stdout:   "Error in line 5: for some other error",
-// 					ExitCode: 1,
-// 				},
-// 				fakeRestoreSuccessCommand,
-// 			},
-// 			wantErr: false,
-// 		},
-// 	}
+func TestDestroyNPMIPSets(t *testing.T) {
+	tests := []struct {
+		name    string
+		calls   []testutils.TestCmd
+		wantErr bool
+	}{
+		{
+			name: "success with no results from grep",
+			calls: []testutils.TestCmd{
+				{Cmd: []string{"ipset", "list", "--name"}, PipedToCommand: true},
+				{Cmd: []string{"grep", "azure-npm-"}, ExitCode: 1},
+			},
+			wantErr: false,
+		},
+		{
+			name: "successfully delete sets",
+			calls: []testutils.TestCmd{
+				{Cmd: []string{"ipset", "list", "--name"}, PipedToCommand: true},
+				{Cmd: []string{"grep", "azure-npm-"}, Stdout: resetIPSetsListOutputString},
+				fakeRestoreSuccessCommand,
+			},
+			wantErr: false,
+		},
+		{
+			name: "grep error",
+			calls: []testutils.TestCmd{
+				{Cmd: []string{"ipset", "list", "--name"}, HasStartError: true, PipedToCommand: true, ExitCode: 1},
+				{Cmd: []string{"grep", "azure-npm-"}},
+			},
+			wantErr: true,
+		},
+		{
+			name: "restore error from max tries",
+			calls: []testutils.TestCmd{
+				{Cmd: []string{"ipset", "list", "--name"}, PipedToCommand: true},
+				{Cmd: []string{"grep", "azure-npm-"}, Stdout: resetIPSetsListOutputString},
+				{Cmd: ipsetRestoreStringSlice, ExitCode: 1},
+				{Cmd: ipsetRestoreStringSlice, ExitCode: 1},
+				{Cmd: ipsetRestoreStringSlice, ExitCode: 1},
+			},
+			wantErr: true,
+		},
+		{
+			name: "successfully restore, but fail to flush/destroy 1 set since the set doesn't exist when flushing",
+			calls: []testutils.TestCmd{
+				{Cmd: []string{"ipset", "list", "--name"}, PipedToCommand: true},
+				{Cmd: []string{"grep", "azure-npm-"}, Stdout: resetIPSetsListOutputString},
+				{
+					Cmd:      ipsetRestoreStringSlice,
+					Stdout:   "Error in line 2: The set with the given name does not exist",
+					ExitCode: 1,
+				},
+				fakeRestoreSuccessCommand,
+			},
+			wantErr: false,
+		},
+		{
+			name: "successfully restore, but fail to flush/destroy 1 set due to other flush error",
+			calls: []testutils.TestCmd{
+				{Cmd: []string{"ipset", "list", "--name"}, PipedToCommand: true},
+				{Cmd: []string{"grep", "azure-npm-"}, Stdout: resetIPSetsListOutputString},
+				{
+					Cmd:      ipsetRestoreStringSlice,
+					Stdout:   "Error in line 2: for some other error",
+					ExitCode: 1,
+				},
+				fakeRestoreSuccessCommand,
+			},
+			wantErr: false,
+		},
+		{
+			name: "successfully restore, but fail to destroy 1 set since the set doesn't exist when destroying",
+			calls: []testutils.TestCmd{
+				{Cmd: []string{"ipset", "list", "--name"}, PipedToCommand: true},
+				{Cmd: []string{"grep", "azure-npm-"}, Stdout: resetIPSetsListOutputString},
+				{
+					Cmd:      ipsetRestoreStringSlice,
+					Stdout:   "Error in line 5: The set with the given name does not exist",
+					ExitCode: 1,
+				},
+				fakeRestoreSuccessCommand,
+			},
+			wantErr: false,
+		},
+		{
+			name: "successfully restore, but fail to destroy 1 set due to other destroy error",
+			calls: []testutils.TestCmd{
+				{Cmd: []string{"ipset", "list", "--name"}, PipedToCommand: true},
+				{Cmd: []string{"grep", "azure-npm-"}, Stdout: resetIPSetsListOutputString},
+				{
+					Cmd:      ipsetRestoreStringSlice,
+					Stdout:   "Error in line 5: for some other error",
+					ExitCode: 1,
+				},
+				fakeRestoreSuccessCommand,
+			},
+			wantErr: false,
+		},
+	}
 
-// 	for _, tt := range tests {
-// 		tt := tt
-// 		t.Run(tt.name, func(t *testing.T) {
-// 			ioshim := common.NewMockIOShim(tt.calls)
-// 			defer ioshim.VerifyCalls(t, tt.calls)
-// 			iMgr := NewIPSetManager(applyAlwaysCfg, ioshim)
-// 			err := iMgr.resetIPSets()
-// 			if tt.wantErr {
-// 				require.Error(t, err)
-// 			} else {
-// 				require.NoError(t, err)
-// 			}
-// 		})
-// 	}
-// }
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			ioshim := common.NewMockIOShim(tt.calls)
+			defer ioshim.VerifyCalls(t, tt.calls)
+			iMgr := NewIPSetManager(applyAlwaysCfg, ioshim)
+			err := iMgr.resetIPSets()
+			if tt.wantErr {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
 
-// // identical to TestResetIPSets in ipsetmanager_test.go except an error occurs
-// // makes sure that the cache and metrics are reset despite error
-// func TestResetIPSetsOnFailure(t *testing.T) {
-// 	metrics.ReinitializeAll()
-// 	calls := []testutils.TestCmd{
-// 		{Cmd: []string{"ipset", "list", "--name"}, PipedToCommand: true, HasStartError: true},
-// 		{Cmd: []string{"grep", "azure-npm-"}},
-// 	}
-// 	ioShim := common.NewMockIOShim(calls)
-// 	defer ioShim.VerifyCalls(t, calls)
-// 	iMgr := NewIPSetManager(applyAlwaysCfg, ioShim)
+// identical to TestResetIPSets in ipsetmanager_test.go except an error occurs
+// makes sure that the cache and metrics are reset despite error
+func TestResetIPSetsOnFailure(t *testing.T) {
+	metrics.ReinitializeAll()
+	calls := []testutils.TestCmd{
+		{Cmd: []string{"ipset", "list", "--name"}, PipedToCommand: true, HasStartError: true},
+		{Cmd: []string{"grep", "azure-npm-"}},
+	}
+	ioShim := common.NewMockIOShim(calls)
+	defer ioShim.VerifyCalls(t, calls)
+	iMgr := NewIPSetManager(applyAlwaysCfg, ioShim)
 
-// 	iMgr.CreateIPSets([]*IPSetMetadata{namespaceSet, keyLabelOfPodSet})
+	iMgr.CreateIPSets([]*IPSetMetadata{namespaceSet, keyLabelOfPodSet})
 
-// 	metrics.IncNumIPSets()
-// 	metrics.IncNumIPSets()
-// 	metrics.AddEntryToIPSet("test1")
-// 	metrics.AddEntryToIPSet("test1")
-// 	metrics.AddEntryToIPSet("test2")
+	metrics.IncNumIPSets()
+	metrics.IncNumIPSets()
+	metrics.AddEntryToIPSet("test1")
+	metrics.AddEntryToIPSet("test1")
+	metrics.AddEntryToIPSet("test2")
 
-// 	require.NoError(t, iMgr.ResetIPSets())
+	require.NoError(t, iMgr.ResetIPSets())
 
-// 	assertExpectedInfo(t, iMgr, &expectedInfo{
-// 		mainCache:        nil,
-// 		toAddUpdateCache: nil,
-// 		toDeleteCache:    nil,
-// 		setsForKernel:    nil,
-// 	})
-// }
+	assertExpectedInfo(t, iMgr, &expectedInfo{
+		mainCache:        nil,
+		toAddUpdateCache: nil,
+		toDeleteCache:    nil,
+		setsForKernel:    nil,
+	})
+}
 
-// func TestApplyIPSetsSuccessWithoutSave(t *testing.T) {
-// 	// no sets to add/update, so don't call ipset save
-// 	calls := []testutils.TestCmd{{Cmd: ipsetRestoreStringSlice}}
-// 	ioshim := common.NewMockIOShim(calls)
-// 	defer ioshim.VerifyCalls(t, calls)
-// 	iMgr := NewIPSetManager(applyAlwaysCfg, ioshim)
+func TestApplyIPSetsSuccess(t *testing.T) {
+	// no sets to add/update, so don't call ipset save
+	calls := []testutils.TestCmd{{Cmd: ipsetRestoreStringSlice}}
+	ioshim := common.NewMockIOShim(calls)
+	defer ioshim.VerifyCalls(t, calls)
+	iMgr := NewIPSetManager(applyAlwaysCfg, ioshim)
 
-// 	// delete a set so the file isn't empty (otherwise the creator won't even call the exec command)
-// 	iMgr.CreateIPSets([]*IPSetMetadata{TestNSSet.Metadata}) // create so we can delete
-// 	iMgr.DeleteIPSet(TestNSSet.PrefixName, util.SoftDelete)
-// 	err := iMgr.applyIPSets()
-// 	require.NoError(t, err)
-// }
+	// delete a set so the file isn't empty (otherwise the creator won't even call the exec command)
+	iMgr.CreateIPSets([]*IPSetMetadata{TestNSSet.Metadata}) // create so we can delete
+	iMgr.DeleteIPSet(TestNSSet.PrefixName, util.SoftDelete)
+	err := iMgr.applyIPSets()
+	require.NoError(t, err)
+}
 
-// func TestApplyIPSetsSuccessWithSave(t *testing.T) {
-// 	calls := []testutils.TestCmd{
-// 		{Cmd: ipsetSaveStringSlice, PipedToCommand: true},
-// 		{Cmd: []string{"grep", "azure-npm-"}},
-// 		{Cmd: ipsetRestoreStringSlice},
-// 	}
-// 	ioshim := common.NewMockIOShim(calls)
-// 	defer ioshim.VerifyCalls(t, calls)
-// 	iMgr := NewIPSetManager(applyAlwaysCfg, ioshim)
+func TestApplyIPSetsFailureOnRestore(t *testing.T) {
+	calls := []testutils.TestCmd{
+		// fail 3 times because this is our max try count
+		{Cmd: ipsetRestoreStringSlice, ExitCode: 1},
+		{Cmd: ipsetRestoreStringSlice, ExitCode: 1},
+		{Cmd: ipsetRestoreStringSlice, ExitCode: 1},
+	}
+	ioshim := common.NewMockIOShim(calls)
+	// defer ioshim.VerifyCalls(t, calls)
+	iMgr := NewIPSetManager(applyAlwaysCfg, ioshim)
 
-// 	// create a set so we run ipset save
-// 	iMgr.CreateIPSets([]*IPSetMetadata{TestNSSet.Metadata})
-// 	err := iMgr.applyIPSets()
-// 	require.NoError(t, err)
-// }
+	// create a set so we run ipset save
+	iMgr.CreateIPSets([]*IPSetMetadata{TestNSSet.Metadata})
+	err := iMgr.applyIPSets()
+	require.Error(t, err)
+}
 
-// func TestApplyIPSetsFailureOnSave(t *testing.T) {
-// 	calls := []testutils.TestCmd{
-// 		{Cmd: ipsetSaveStringSlice, HasStartError: true, PipedToCommand: true, ExitCode: 1},
-// 		{Cmd: []string{"grep", "azure-npm-"}},
-// 	}
-// 	ioshim := common.NewMockIOShim(calls)
-// 	defer ioshim.VerifyCalls(t, calls)
-// 	iMgr := NewIPSetManager(applyAlwaysCfg, ioshim)
+func TestApplyIPSetsRecoveryForFailureOnRestore(t *testing.T) {
+	calls := []testutils.TestCmd{
+		{Cmd: ipsetRestoreStringSlice, ExitCode: 1},
+		{Cmd: ipsetRestoreStringSlice},
+	}
+	ioshim := common.NewMockIOShim(calls)
+	defer ioshim.VerifyCalls(t, calls)
+	iMgr := NewIPSetManager(applyAlwaysCfg, ioshim)
 
-// 	// create a set so we run ipset save
-// 	iMgr.CreateIPSets([]*IPSetMetadata{TestNSSet.Metadata})
-// 	err := iMgr.applyIPSets()
-// 	require.Error(t, err)
-// }
+	// create a set so we run ipset save
+	iMgr.CreateIPSets([]*IPSetMetadata{TestNSSet.Metadata})
+	err := iMgr.applyIPSets()
+	require.NoError(t, err)
+}
 
-// func TestApplyIPSetsFailureOnRestore(t *testing.T) {
-// 	calls := []testutils.TestCmd{
-// 		{Cmd: ipsetSaveStringSlice, PipedToCommand: true},
-// 		{Cmd: []string{"grep", "azure-npm-"}},
-// 		// fail 3 times because this is our max try count
-// 		{Cmd: ipsetRestoreStringSlice, ExitCode: 1},
-// 		{Cmd: ipsetRestoreStringSlice, ExitCode: 1},
-// 		{Cmd: ipsetRestoreStringSlice, ExitCode: 1},
-// 	}
-// 	ioshim := common.NewMockIOShim(calls)
-// 	defer ioshim.VerifyCalls(t, calls)
-// 	iMgr := NewIPSetManager(applyAlwaysCfg, ioshim)
+func TestCreateForAllSetTypes(t *testing.T) {
+	calls := []testutils.TestCmd{fakeRestoreSuccessCommand}
+	ioshim := common.NewMockIOShim(calls)
+	defer ioshim.VerifyCalls(t, calls)
+	iMgr := NewIPSetManager(applyAlwaysCfg, ioshim)
 
-// 	// create a set so we run ipset save
-// 	iMgr.CreateIPSets([]*IPSetMetadata{TestNSSet.Metadata})
-// 	err := iMgr.applyIPSets()
-// 	require.Error(t, err)
-// }
+	require.NoError(t, iMgr.AddToSets([]*IPSetMetadata{TestNSSet.Metadata}, "10.0.0.0", "a"))
+	require.NoError(t, iMgr.AddToSets([]*IPSetMetadata{TestNSSet.Metadata}, "10.0.0.1", "b"))
+	require.NoError(t, iMgr.AddToSets([]*IPSetMetadata{TestKeyPodSet.Metadata}, "10.0.0.5", "c"))
+	iMgr.CreateIPSets([]*IPSetMetadata{TestKVPodSet.Metadata})
+	iMgr.CreateIPSets([]*IPSetMetadata{TestNamedportSet.Metadata})
+	iMgr.CreateIPSets([]*IPSetMetadata{TestCIDRSet.Metadata})
+	require.NoError(t, iMgr.AddToLists([]*IPSetMetadata{TestKeyNSList.Metadata}, []*IPSetMetadata{TestNSSet.Metadata, TestKeyPodSet.Metadata}))
+	require.NoError(t, iMgr.AddToLists([]*IPSetMetadata{TestKVNSList.Metadata}, []*IPSetMetadata{TestKVPodSet.Metadata}))
+	iMgr.CreateIPSets([]*IPSetMetadata{TestNestedLabelList.Metadata})
 
-// func TestApplyIPSetsRecoveryForFailureOnRestore(t *testing.T) {
-// 	calls := []testutils.TestCmd{
-// 		{Cmd: ipsetSaveStringSlice, PipedToCommand: true},
-// 		{Cmd: []string{"grep", "azure-npm-"}},
-// 		{Cmd: ipsetRestoreStringSlice, ExitCode: 1},
-// 		{Cmd: ipsetRestoreStringSlice},
-// 	}
-// 	ioshim := common.NewMockIOShim(calls)
-// 	defer ioshim.VerifyCalls(t, calls)
-// 	iMgr := NewIPSetManager(applyAlwaysCfg, ioshim)
+	creator := iMgr.fileCreatorForApply(len(calls), nil)
+	actualLines := testAndSortRestoreFileString(t, creator.ToString())
 
-// 	// create a set so we run ipset save
-// 	iMgr.CreateIPSets([]*IPSetMetadata{TestNSSet.Metadata})
-// 	err := iMgr.applyIPSets()
-// 	require.NoError(t, err)
-// }
+	expectedLines := []string{
+		fmt.Sprintf("-N %s --exist nethash", TestNSSet.HashedName),
+		fmt.Sprintf("-N %s --exist nethash", TestKeyPodSet.HashedName),
+		fmt.Sprintf("-N %s --exist nethash", TestKVPodSet.HashedName),
+		fmt.Sprintf("-N %s --exist hash:ip,port", TestNamedportSet.HashedName),
+		fmt.Sprintf("-N %s --exist nethash maxelem 4294967295", TestCIDRSet.HashedName),
+		fmt.Sprintf("-N %s --exist setlist", TestKeyNSList.HashedName),
+		fmt.Sprintf("-N %s --exist setlist", TestKVNSList.HashedName),
+		fmt.Sprintf("-N %s --exist setlist", TestNestedLabelList.HashedName),
+		fmt.Sprintf("-A %s 10.0.0.0", TestNSSet.HashedName),
+		fmt.Sprintf("-A %s 10.0.0.1", TestNSSet.HashedName),
+		fmt.Sprintf("-A %s 10.0.0.5", TestKeyPodSet.HashedName),
+		fmt.Sprintf("-A %s %s", TestKeyNSList.HashedName, TestNSSet.HashedName),
+		fmt.Sprintf("-A %s %s", TestKeyNSList.HashedName, TestKeyPodSet.HashedName),
+		fmt.Sprintf("-A %s %s", TestKVNSList.HashedName, TestKVPodSet.HashedName),
+		"",
+	}
+	sortedExpectedLines := testAndSortRestoreFileLines(t, expectedLines)
 
-// func TestIPSetSave(t *testing.T) {
-// 	calls := []testutils.TestCmd{
-// 		{Cmd: ipsetSaveStringSlice, PipedToCommand: true},
-// 		{Cmd: []string{"grep", "azure-npm-"}, Stdout: saveResult},
-// 	}
-// 	ioshim := common.NewMockIOShim(calls)
-// 	defer ioshim.VerifyCalls(t, calls)
-// 	iMgr := NewIPSetManager(applyAlwaysCfg, ioshim)
+	dptestutils.AssertEqualLines(t, sortedExpectedLines, actualLines)
+	wasFileAltered, err := creator.RunCommandOnceWithFile("ipset", "restore")
+	require.NoError(t, err, "ipset restore should be successful")
+	require.False(t, wasFileAltered, "file should not be altered")
+}
 
-// 	output, err := iMgr.ipsetSave()
-// 	require.NoError(t, err)
-// 	require.Equal(t, saveResult, string(output))
-// }
+func TestDestroy(t *testing.T) {
+	// without save file
+	calls := []testutils.TestCmd{fakeRestoreSuccessCommand}
+	ioshim := common.NewMockIOShim(calls)
+	defer ioshim.VerifyCalls(t, calls)
+	iMgr := NewIPSetManager(applyAlwaysCfg, ioshim)
 
-// func TestIPSetSaveNoMatch(t *testing.T) {
-// 	calls := []testutils.TestCmd{
-// 		{Cmd: ipsetSaveStringSlice, ExitCode: 1},
-// 		{Cmd: []string{"grep", "azure-npm-"}},
-// 	}
-// 	ioshim := common.NewMockIOShim(calls)
-// 	defer ioshim.VerifyCalls(t, calls)
-// 	iMgr := NewIPSetManager(applyAlwaysCfg, ioshim)
+	// remove some members and destroy some sets
+	require.NoError(t, iMgr.AddToSets([]*IPSetMetadata{TestNSSet.Metadata}, "10.0.0.0", "a"))
+	require.NoError(t, iMgr.AddToSets([]*IPSetMetadata{TestNSSet.Metadata}, "10.0.0.1", "b"))
+	require.NoError(t, iMgr.RemoveFromSets([]*IPSetMetadata{TestNSSet.Metadata}, "10.0.0.1", "b"))
+	iMgr.CreateIPSets([]*IPSetMetadata{TestKeyPodSet.Metadata})
+	require.NoError(t, iMgr.AddToLists([]*IPSetMetadata{TestKeyNSList.Metadata}, []*IPSetMetadata{TestNSSet.Metadata, TestKeyPodSet.Metadata}))
+	require.NoError(t, iMgr.RemoveFromList(TestKeyNSList.Metadata, []*IPSetMetadata{TestKeyPodSet.Metadata}))
+	iMgr.CreateIPSets([]*IPSetMetadata{TestCIDRSet.Metadata}) // create so we can delete
+	iMgr.DeleteIPSet(TestCIDRSet.PrefixName, util.SoftDelete)
+	iMgr.CreateIPSets([]*IPSetMetadata{TestNestedLabelList.Metadata}) // create so we can delete
+	iMgr.DeleteIPSet(TestNestedLabelList.PrefixName, util.SoftDelete)
 
-// 	output, err := iMgr.ipsetSave()
-// 	require.NoError(t, err)
-// 	require.Nil(t, output)
-// }
+	creator := iMgr.fileCreatorForApply(len(calls), nil)
+	actualLines := testAndSortRestoreFileString(t, creator.ToString())
 
-// func TestCreateForAllSetTypes(t *testing.T) {
-// 	// without save file
-// 	calls := []testutils.TestCmd{fakeRestoreSuccessCommand}
-// 	ioshim := common.NewMockIOShim(calls)
-// 	defer ioshim.VerifyCalls(t, calls)
-// 	iMgr := NewIPSetManager(applyAlwaysCfg, ioshim)
+	expectedLines := []string{
+		fmt.Sprintf("-N %s --exist nethash", TestNSSet.HashedName),
+		fmt.Sprintf("-N %s --exist nethash", TestKeyPodSet.HashedName),
+		fmt.Sprintf("-N %s --exist setlist", TestKeyNSList.HashedName),
+		fmt.Sprintf("-A %s 10.0.0.0", TestNSSet.HashedName),
+		fmt.Sprintf("-A %s %s", TestKeyNSList.HashedName, TestNSSet.HashedName),
+		fmt.Sprintf("-F %s", TestCIDRSet.HashedName),
+		fmt.Sprintf("-F %s", TestNestedLabelList.HashedName),
+		fmt.Sprintf("-X %s", TestCIDRSet.HashedName),
+		fmt.Sprintf("-X %s", TestNestedLabelList.HashedName),
+		"",
+	}
+	sortedExpectedLines := testAndSortRestoreFileLines(t, expectedLines)
 
-// 	require.NoError(t, iMgr.AddToSets([]*IPSetMetadata{TestNSSet.Metadata}, "10.0.0.0", "a"))
-// 	require.NoError(t, iMgr.AddToSets([]*IPSetMetadata{TestNSSet.Metadata}, "10.0.0.1", "b"))
-// 	require.NoError(t, iMgr.AddToSets([]*IPSetMetadata{TestKeyPodSet.Metadata}, "10.0.0.5", "c"))
-// 	iMgr.CreateIPSets([]*IPSetMetadata{TestKVPodSet.Metadata})
-// 	iMgr.CreateIPSets([]*IPSetMetadata{TestNamedportSet.Metadata})
-// 	iMgr.CreateIPSets([]*IPSetMetadata{TestCIDRSet.Metadata})
-// 	require.NoError(t, iMgr.AddToLists([]*IPSetMetadata{TestKeyNSList.Metadata}, []*IPSetMetadata{TestNSSet.Metadata, TestKeyPodSet.Metadata}))
-// 	require.NoError(t, iMgr.AddToLists([]*IPSetMetadata{TestKVNSList.Metadata}, []*IPSetMetadata{TestKVPodSet.Metadata}))
-// 	iMgr.CreateIPSets([]*IPSetMetadata{TestNestedLabelList.Metadata})
+	dptestutils.AssertEqualLines(t, sortedExpectedLines, actualLines)
+	wasFileAltered, err := creator.RunCommandOnceWithFile("ipset", "restore")
+	require.NoError(t, err, "ipset restore should be successful")
+	require.False(t, wasFileAltered, "file should not be altered")
+}
 
-// 	creator := iMgr.fileCreatorForApply(len(calls), nil)
-// 	actualLines := testAndSortRestoreFileString(t, creator.ToString())
+func TestFailureOnCreateForNewSet(t *testing.T) {
+	// with respect to the error line, be weary that sets in the save file are processed first and in order, and other sets are processed in random order
+	// test logic:
+	// - delete a set
+	// - create three sets, each with two members. the second set to appear will fail to be created
+	errorLineNum := 2
+	setToCreateAlreadyExistsCommand := testutils.TestCmd{
+		Cmd:      ipsetRestoreStringSlice,
+		Stdout:   fmt.Sprintf("Error in line %d: Set cannot be created: set with the same name already exists", errorLineNum),
+		ExitCode: 1,
+	}
+	calls := []testutils.TestCmd{setToCreateAlreadyExistsCommand, fakeRestoreSuccessCommand}
+	ioshim := common.NewMockIOShim(calls)
+	defer ioshim.VerifyCalls(t, calls)
+	iMgr := NewIPSetManager(applyAlwaysCfg, ioshim)
 
-// 	expectedLines := []string{
-// 		fmt.Sprintf("-N %s --exist nethash", TestNSSet.HashedName),
-// 		fmt.Sprintf("-N %s --exist nethash", TestKeyPodSet.HashedName),
-// 		fmt.Sprintf("-N %s --exist nethash", TestKVPodSet.HashedName),
-// 		fmt.Sprintf("-N %s --exist hash:ip,port", TestNamedportSet.HashedName),
-// 		fmt.Sprintf("-N %s --exist nethash maxelem 4294967295", TestCIDRSet.HashedName),
-// 		fmt.Sprintf("-N %s --exist setlist", TestKeyNSList.HashedName),
-// 		fmt.Sprintf("-N %s --exist setlist", TestKVNSList.HashedName),
-// 		fmt.Sprintf("-N %s --exist setlist", TestNestedLabelList.HashedName),
-// 		fmt.Sprintf("-A %s 10.0.0.0", TestNSSet.HashedName),
-// 		fmt.Sprintf("-A %s 10.0.0.1", TestNSSet.HashedName),
-// 		fmt.Sprintf("-A %s 10.0.0.5", TestKeyPodSet.HashedName),
-// 		fmt.Sprintf("-A %s %s", TestKeyNSList.HashedName, TestNSSet.HashedName),
-// 		fmt.Sprintf("-A %s %s", TestKeyNSList.HashedName, TestKeyPodSet.HashedName),
-// 		fmt.Sprintf("-A %s %s", TestKVNSList.HashedName, TestKVPodSet.HashedName),
-// 		"",
-// 	}
-// 	sortedExpectedLines := testAndSortRestoreFileLines(t, expectedLines)
+	// add all of these members to the kernel
+	require.NoError(t, iMgr.AddToSets([]*IPSetMetadata{TestKVPodSet.Metadata}, "1.2.3.4", "a"))             // create and add member
+	require.NoError(t, iMgr.AddToSets([]*IPSetMetadata{TestKVPodSet.Metadata}, "1.2.3.5", "b"))             // add member
+	require.NoError(t, iMgr.AddToSets([]*IPSetMetadata{TestCIDRSet.Metadata}, "1.2.3.4", "a"))              // create and add member
+	require.NoError(t, iMgr.AddToSets([]*IPSetMetadata{TestCIDRSet.Metadata}, "1.2.3.5", "b"))              // add member
+	require.NoError(t, iMgr.AddToSets([]*IPSetMetadata{TestNamedportSet.Metadata}, "1.2.3.4,tcp:567", "a")) // create and add member
+	require.NoError(t, iMgr.AddToSets([]*IPSetMetadata{TestNamedportSet.Metadata}, "1.2.3.5,tcp:567", "b")) // add member
+	iMgr.CreateIPSets([]*IPSetMetadata{TestKeyNSList.Metadata})                                             // create so we can delete
+	iMgr.DeleteIPSet(TestKeyNSList.PrefixName, util.SoftDelete)
 
-// 	dptestutils.AssertEqualLines(t, sortedExpectedLines, actualLines)
-// 	wasFileAltered, err := creator.RunCommandOnceWithFile("ipset", "restore")
-// 	require.NoError(t, err, "ipset restore should be successful")
-// 	require.False(t, wasFileAltered, "file should not be altered")
-// }
+	// get original creator and run it the first time
+	creator := iMgr.fileCreatorForApply(len(calls), nil)
+	originalLines := strings.Split(creator.ToString(), "\n")
+	wasFileAltered, err := creator.RunCommandOnceWithFile("ipset", "restore")
+	require.Error(t, err, "ipset restore should fail")
+	require.True(t, wasFileAltered, "file should be altered")
 
-// func TestDestroy(t *testing.T) {
-// 	// without save file
-// 	calls := []testutils.TestCmd{fakeRestoreSuccessCommand}
-// 	ioshim := common.NewMockIOShim(calls)
-// 	defer ioshim.VerifyCalls(t, calls)
-// 	iMgr := NewIPSetManager(applyAlwaysCfg, ioshim)
+	// rerun the creator after removing previously run lines, and aborting the create, adds, and deletes for the second set to updated
+	removedSetName := hashedNameOfSetImpacted(t, "-N", originalLines, errorLineNum)
+	requireStringInSlice(t, removedSetName, []string{TestNSSet.HashedName, TestKVPodSet.HashedName, TestCIDRSet.HashedName, TestNamedportSet.HashedName})
+	expectedLines := originalLines[errorLineNum:] // skip the error line and the lines previously run
+	originalLength := len(expectedLines)
+	expectedLines = removeOperationsForSet(expectedLines, removedSetName, "-A")
+	require.Equal(t, originalLength-2, len(expectedLines), "expected to remove two add lines")
+	sortedExpectedLines := testAndSortRestoreFileLines(t, expectedLines)
 
-// 	// remove some members and destroy some sets
-// 	require.NoError(t, iMgr.AddToSets([]*IPSetMetadata{TestNSSet.Metadata}, "10.0.0.0", "a"))
-// 	require.NoError(t, iMgr.AddToSets([]*IPSetMetadata{TestNSSet.Metadata}, "10.0.0.1", "b"))
-// 	require.NoError(t, iMgr.RemoveFromSets([]*IPSetMetadata{TestNSSet.Metadata}, "10.0.0.1", "b"))
-// 	iMgr.CreateIPSets([]*IPSetMetadata{TestKeyPodSet.Metadata})
-// 	require.NoError(t, iMgr.AddToLists([]*IPSetMetadata{TestKeyNSList.Metadata}, []*IPSetMetadata{TestNSSet.Metadata, TestKeyPodSet.Metadata}))
-// 	require.NoError(t, iMgr.RemoveFromList(TestKeyNSList.Metadata, []*IPSetMetadata{TestKeyPodSet.Metadata}))
-// 	iMgr.CreateIPSets([]*IPSetMetadata{TestCIDRSet.Metadata}) // create so we can delete
-// 	iMgr.DeleteIPSet(TestCIDRSet.PrefixName, util.SoftDelete)
-// 	iMgr.CreateIPSets([]*IPSetMetadata{TestNestedLabelList.Metadata}) // create so we can delete
-// 	iMgr.DeleteIPSet(TestNestedLabelList.PrefixName, util.SoftDelete)
-
-// 	creator := iMgr.fileCreatorForApply(len(calls), nil)
-// 	actualLines := testAndSortRestoreFileString(t, creator.ToString())
-
-// 	expectedLines := []string{
-// 		fmt.Sprintf("-N %s --exist nethash", TestNSSet.HashedName),
-// 		fmt.Sprintf("-N %s --exist nethash", TestKeyPodSet.HashedName),
-// 		fmt.Sprintf("-N %s --exist setlist", TestKeyNSList.HashedName),
-// 		fmt.Sprintf("-A %s 10.0.0.0", TestNSSet.HashedName),
-// 		fmt.Sprintf("-A %s %s", TestKeyNSList.HashedName, TestNSSet.HashedName),
-// 		fmt.Sprintf("-F %s", TestCIDRSet.HashedName),
-// 		fmt.Sprintf("-F %s", TestNestedLabelList.HashedName),
-// 		fmt.Sprintf("-X %s", TestCIDRSet.HashedName),
-// 		fmt.Sprintf("-X %s", TestNestedLabelList.HashedName),
-// 		"",
-// 	}
-// 	sortedExpectedLines := testAndSortRestoreFileLines(t, expectedLines)
-
-// 	dptestutils.AssertEqualLines(t, sortedExpectedLines, actualLines)
-// 	wasFileAltered, err := creator.RunCommandOnceWithFile("ipset", "restore")
-// 	require.NoError(t, err, "ipset restore should be successful")
-// 	require.False(t, wasFileAltered, "file should not be altered")
-// }
-
-// func TestFailureOnCreateForNewSet(t *testing.T) {
-// 	// with respect to the error line, be weary that sets in the save file are processed first and in order, and other sets are processed in random order
-// 	// test logic:
-// 	// - delete a set
-// 	// - create three sets, each with two members. the second set to appear will fail to be created
-// 	errorLineNum := 2
-// 	setToCreateAlreadyExistsCommand := testutils.TestCmd{
-// 		Cmd:      ipsetRestoreStringSlice,
-// 		Stdout:   fmt.Sprintf("Error in line %d: Set cannot be created: set with the same name already exists", errorLineNum),
-// 		ExitCode: 1,
-// 	}
-// 	calls := []testutils.TestCmd{setToCreateAlreadyExistsCommand, fakeRestoreSuccessCommand}
-// 	ioshim := common.NewMockIOShim(calls)
-// 	defer ioshim.VerifyCalls(t, calls)
-// 	iMgr := NewIPSetManager(applyAlwaysCfg, ioshim)
-
-// 	// add all of these members to the kernel
-// 	require.NoError(t, iMgr.AddToSets([]*IPSetMetadata{TestKVPodSet.Metadata}, "1.2.3.4", "a"))             // create and add member
-// 	require.NoError(t, iMgr.AddToSets([]*IPSetMetadata{TestKVPodSet.Metadata}, "1.2.3.5", "b"))             // add member
-// 	require.NoError(t, iMgr.AddToSets([]*IPSetMetadata{TestCIDRSet.Metadata}, "1.2.3.4", "a"))              // create and add member
-// 	require.NoError(t, iMgr.AddToSets([]*IPSetMetadata{TestCIDRSet.Metadata}, "1.2.3.5", "b"))              // add member
-// 	require.NoError(t, iMgr.AddToSets([]*IPSetMetadata{TestNamedportSet.Metadata}, "1.2.3.4,tcp:567", "a")) // create and add member
-// 	require.NoError(t, iMgr.AddToSets([]*IPSetMetadata{TestNamedportSet.Metadata}, "1.2.3.5,tcp:567", "b")) // add member
-// 	iMgr.CreateIPSets([]*IPSetMetadata{TestKeyNSList.Metadata})                                             // create so we can delete
-// 	iMgr.DeleteIPSet(TestKeyNSList.PrefixName, util.SoftDelete)
-
-// 	// get original creator and run it the first time
-// 	creator := iMgr.fileCreatorForApply(len(calls), nil)
-// 	originalLines := strings.Split(creator.ToString(), "\n")
-// 	wasFileAltered, err := creator.RunCommandOnceWithFile("ipset", "restore")
-// 	require.Error(t, err, "ipset restore should fail")
-// 	require.True(t, wasFileAltered, "file should be altered")
-
-// 	// rerun the creator after removing previously run lines, and aborting the create, adds, and deletes for the second set to updated
-// 	removedSetName := hashedNameOfSetImpacted(t, "-N", originalLines, errorLineNum)
-// 	requireStringInSlice(t, removedSetName, []string{TestNSSet.HashedName, TestKVPodSet.HashedName, TestCIDRSet.HashedName, TestNamedportSet.HashedName})
-// 	expectedLines := originalLines[errorLineNum:] // skip the error line and the lines previously run
-// 	originalLength := len(expectedLines)
-// 	expectedLines = removeOperationsForSet(expectedLines, removedSetName, "-A")
-// 	require.Equal(t, originalLength-2, len(expectedLines), "expected to remove two add lines")
-// 	sortedExpectedLines := testAndSortRestoreFileLines(t, expectedLines)
-
-// 	actualLines := testAndSortRestoreFileString(t, creator.ToString())
-// 	dptestutils.AssertEqualLines(t, sortedExpectedLines, actualLines)
-// 	wasFileAltered, err = creator.RunCommandOnceWithFile("ipset", "restore")
-// 	require.NoError(t, err)
-// 	require.False(t, wasFileAltered, "file should not be altered")
-// }
+	actualLines := testAndSortRestoreFileString(t, creator.ToString())
+	dptestutils.AssertEqualLines(t, sortedExpectedLines, actualLines)
+	wasFileAltered, err = creator.RunCommandOnceWithFile("ipset", "restore")
+	require.NoError(t, err)
+	require.False(t, wasFileAltered, "file should not be altered")
+}
 
 // func TestFailureOnCreateForSetInKernel(t *testing.T) {
 // 	// with respect to the error line, be weary that sets in the save file are processed first and in order, and other sets are processed in random order
@@ -944,107 +960,106 @@ var resetIPSetsListOutput = []byte(resetIPSetsListOutputString)
 // 	require.False(t, wasFileAltered, "file should not be altered")
 // }
 
-// func testAndSortRestoreFileString(t *testing.T, multilineString string) []string {
-// 	return testAndSortRestoreFileLines(t, strings.Split(multilineString, "\n"))
-// }
+func testAndSortRestoreFileString(t *testing.T, multilineString string) []string {
+	return testAndSortRestoreFileLines(t, strings.Split(multilineString, "\n"))
+}
 
-// // make sure file goes in order of creates, adds/deletes, flushes, then destroys
-// // then sort those sections and return the lines in an array
-// func testAndSortRestoreFileLines(t *testing.T, lines []string) []string {
-// 	if len(lines) == 0 {
-// 		return lines
-// 	}
-// 	require.True(t, lines[len(lines)-1] == "", "restore file must end with blank line")
-// 	lines = lines[:len(lines)-1] // remove the blank line
+// make sure file goes in order of creates, adds/deletes, flushes, then destroys
+// then sort those sections and return the lines in an array
+func testAndSortRestoreFileLines(t *testing.T, lines []string) []string {
+	if len(lines) == 0 {
+		return lines
+	}
+	require.True(t, lines[len(lines)-1] == "", "restore file must end with blank line")
+	lines = lines[:len(lines)-1] // remove the blank line
 
-// 	// order of operation groups in restore file (can have groups with multiple possible operatoins)
-// 	operationGroups := [][]string{
-// 		{"-N"},       // creates
-// 		{"-A", "-D"}, // adds/deletes
-// 		{"-F"},       // flushes
-// 		{"-X"},       // destroys
-// 	}
-// 	result := make([]string, 0, len(lines))
-// 	groupIndex := 0
-// 	groupStartIndex := 0
-// 	k := 0
-// 	for k < len(lines) {
-// 		for k < len(lines) {
-// 			// iterate until we reach an operation not in the current operation group
-// 			operation := lines[k][0:2]
-// 			expectedOperations := operationGroups[groupIndex]
-// 			if !isStringInSlice(operation, expectedOperations) {
-// 				require.True(t, groupIndex < len(operationGroups)-1, "ran out of operation groups. got operation %s", operation)
-// 				operationLines := lines[groupStartIndex:k]
-// 				sort.Strings(operationLines)
-// 				result = append(result, operationLines...)
-// 				groupStartIndex = k
-// 				groupIndex++
-// 				break
-// 			}
-// 			k++
-// 		}
-// 	}
-// 	// add the remaining lines since the final operation group won't pass through the if statement in the loop above
-// 	operatrionLines := lines[groupStartIndex:]
-// 	sort.Strings(operatrionLines)
-// 	result = append(result, operatrionLines...)
-// 	result = append(result, "") // add the blank line
-// 	return result
-// }
+	// order of operation groups in restore file (can have groups with multiple possible operatoins)
+	operationGroups := [][]string{
+		{"-N"},       // creates
+		{"-A", "-D"}, // adds/deletes
+		{"-F"},       // flushes
+		{"-X"},       // destroys
+	}
+	result := make([]string, 0, len(lines))
+	groupIndex := 0
+	groupStartIndex := 0
+	k := 0
+	for k < len(lines) {
+		for k < len(lines) {
+			// iterate until we reach an operation not in the current operation group
+			operation := lines[k][0:2]
+			expectedOperations := operationGroups[groupIndex]
+			if !isStringInSlice(operation, expectedOperations) {
+				require.True(t, groupIndex < len(operationGroups)-1, "ran out of operation groups. got operation %s", operation)
+				operationLines := lines[groupStartIndex:k]
+				sort.Strings(operationLines)
+				result = append(result, operationLines...)
+				groupStartIndex = k
+				groupIndex++
+				break
+			}
+			k++
+		}
+	}
+	// add the remaining lines since the final operation group won't pass through the if statement in the loop above
+	operatrionLines := lines[groupStartIndex:]
+	sort.Strings(operatrionLines)
+	result = append(result, operatrionLines...)
+	result = append(result, "") // add the blank line
+	return result
+}
 
-// func hashedNameOfSetImpacted(t *testing.T, operation string, lines []string, lineNum int) string {
-// 	lineNumIndex := lineNum - 1
-// 	line := lines[lineNumIndex]
-// 	pattern := fmt.Sprintf(`\%s (azure-npm-\d+)`, operation)
-// 	re := regexp.MustCompile(pattern)
-// 	results := re.FindStringSubmatch(line)
-// 	require.Equal(t, 2, len(results), "expected to find a match with regex pattern %s for line: %s", pattern, line)
-// 	return results[1] // second item in slice is the group surrounded by ()
-// }
+func hashedNameOfSetImpacted(t *testing.T, operation string, lines []string, lineNum int) string {
+	lineNumIndex := lineNum - 1
+	line := lines[lineNumIndex]
+	pattern := fmt.Sprintf(`\%s (azure-npm-\d+)`, operation)
+	re := regexp.MustCompile(pattern)
+	results := re.FindStringSubmatch(line)
+	require.Equal(t, 2, len(results), "expected to find a match with regex pattern %s for line: %s", pattern, line)
+	return results[1] // second item in slice is the group surrounded by ()
+}
 
-// func memberNameOfSetImpacted(t *testing.T, lines []string, lineNum int) string {
-// 	lineNumIndex := lineNum - 1
-// 	line := lines[lineNumIndex]
-// 	pattern := `\-[AD] azure-npm-\d+ (.*)`
-// 	re := regexp.MustCompile(pattern)
-// 	member := re.FindStringSubmatch(line)[1]
-// 	results := re.FindStringSubmatch(line)
-// 	require.Equal(t, 2, len(results), "expected to find a match with regex pattern %s for line: %s", pattern, line)
-// 	return member
-// }
+func memberNameOfSetImpacted(t *testing.T, lines []string, lineNum int) string {
+	lineNumIndex := lineNum - 1
+	line := lines[lineNumIndex]
+	pattern := `\-[AD] azure-npm-\d+ (.*)`
+	re := regexp.MustCompile(pattern)
+	member := re.FindStringSubmatch(line)[1]
+	results := re.FindStringSubmatch(line)
+	require.Equal(t, 2, len(results), "expected to find a match with regex pattern %s for line: %s", pattern, line)
+	return member
+}
 
-// func isStringInSlice(item string, values []string) bool {
-// 	success := false
-// 	for _, value := range values {
-// 		if item == value {
-// 			success = true
-// 			break
-// 		}
-// 	}
-// 	return success
-// }
+func isStringInSlice(item string, values []string) bool {
+	success := false
+	for _, value := range values {
+		if item == value {
+			success = true
+			break
+		}
+	}
+	return success
+}
 
-// func requireStringInSlice(t *testing.T, item string, values []string) {
-// 	require.Truef(t, isStringInSlice(item, values), "item %s was not one of the possible values %+v", item, values)
-// }
+func requireStringInSlice(t *testing.T, item string, values []string) {
+	require.Truef(t, isStringInSlice(item, values), "item %s was not one of the possible values %+v", item, values)
+}
 
-// // remove lines that start with the operation (include the dash in the operations) e.g.
-// // -A <setname> 1.2.3.4
-// // -D <setname> 1.2.3.4
-// // -X <setname>
-// func removeOperationsForSet(lines []string, hashedSetName, operation string) []string {
-// 	operationRegex := regexp.MustCompile(fmt.Sprintf(`\%s %s`, operation, hashedSetName))
-// 	goodLines := []string{}
-// 	for _, line := range lines {
-// 		if !operationRegex.MatchString(line) {
-// 			goodLines = append(goodLines, line)
-// 		}
-// 	}
-// 	return goodLines
-// }
+// remove lines that start with the operation (include the dash in the operations) e.g.
+// -A <setname> 1.2.3.4
+// -D <setname> 1.2.3.4
+// -X <setname>
+func removeOperationsForSet(lines []string, hashedSetName, operation string) []string {
+	operationRegex := regexp.MustCompile(fmt.Sprintf(`\%s %s`, operation, hashedSetName))
+	goodLines := []string{}
+	for _, line := range lines {
+		if !operationRegex.MatchString(line) {
+			goodLines = append(goodLines, line)
+		}
+	}
+	return goodLines
+}
 
-// FIXME LEAVE COMMENTED FOR LATER
 // func TestNextCreateLine(t *testing.T) {
 // 	createLine := "create test-list1 list:set size 8"
 // 	addLine := "add test-set1 1.2.3.4"
