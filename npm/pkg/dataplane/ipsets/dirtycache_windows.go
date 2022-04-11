@@ -7,7 +7,7 @@ type dirtyCache struct {
 	toDeleteCache      map[string]struct{}
 }
 
-func newDirtyCache() dirtyCacheMaintainer {
+func newDirtyCache() dirtyCacheInterface {
 	dc := &dirtyCache{}
 	dc.reset()
 	return dc
@@ -46,7 +46,7 @@ func putInCacheAndRemoveFromOther(set *IPSet, intoCache, fromCache map[string]st
 }
 
 func (dc *dirtyCache) getSetsToAddOrUpdate() map[string]struct{} {
-	m := make(map[string]struct{}, 0, len(dc.toAddOrUpdateCache))
+	m := make(map[string]struct{}, len(dc.toAddOrUpdateCache))
 	for setName := range dc.toAddOrUpdateCache {
 		m[setName] = struct{}{}
 	}
@@ -54,7 +54,7 @@ func (dc *dirtyCache) getSetsToAddOrUpdate() map[string]struct{} {
 }
 
 func (dc *dirtyCache) getSetsToDelete() map[string]struct{} {
-	m := make(map[string]struct{}, 0, len(dc.toDeleteCache))
+	m := make(map[string]struct{}, len(dc.toDeleteCache))
 	for setName := range dc.toDeleteCache {
 		m[setName] = struct{}{}
 	}
