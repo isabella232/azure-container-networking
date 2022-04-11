@@ -39,6 +39,27 @@ func TestDirtyCacheReset(t *testing.T) {
 	assertDirtyCache(t, dc, &dirtyCacheResults{})
 }
 
+func TestDirtyCacheResetAddOrUpdate(t *testing.T) {
+	set1 := NewIPSet(NewIPSetMetadata("set1", Namespace))
+	set2 := NewIPSet(NewIPSetMetadata("set2", Namespace))
+	set3 := NewIPSet(NewIPSetMetadata("set3", Namespace))
+	set4 := NewIPSet(NewIPSetMetadata("set4", Namespace))
+	dc := newDirtyCache()
+	dc.create(set1)
+	dc.addMember(set2, ip)
+	dc.deleteMember(set3, "4.4.4.4")
+	set4.IPPodKey[ip] = podKey
+	dc.destroy(set4)
+	dc.resetAddOrUpdateCache()
+	assertDirtyCache(t, dc, &dirtyCacheResults{
+		toDestroy: map[string]testDiff{
+			set4.Name: {
+				toDelete: []string{ip},
+			},
+		},
+	})
+}
+
 func TestDirtyCacheCreate(t *testing.T) {
 	set1 := NewIPSet(NewIPSetMetadata("set1", Namespace))
 	dc := newDirtyCache()

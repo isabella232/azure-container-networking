@@ -124,8 +124,7 @@ func (iMgr *IPSetManager) applyIPSets() error {
 		}
 	}
 
-	// FIXME uncomment and handle?
-	// iMgr.toAddOrUpdateCache = make(map[string]struct{})
+	dc.resetAddOrUpdateCache()
 
 	if len(setPolicyBuilder.toDeleteSets) > 0 {
 		err = iMgr.modifySetPolicies(network, hcn.RequestTypeRemove, setPolicyBuilder.toDeleteSets)
@@ -163,13 +162,13 @@ func (iMgr *IPSetManager) calculateNewSetPolicies(networkPolicies []hcn.NetworkP
 
 	// for faster look up changing a slice to map
 	existingSetNames := make(map[string]struct{})
-	for setName := range existingSets {
+	for _, setName := range existingSets {
 		existingSetNames[setName] = struct{}{}
 	}
 	// (TODO) remove this log line later
 	klog.Infof("toAddUpdateSetNames %+v \n ", toAddUpdateSetNames)
 	klog.Infof("existingSetNames %+v \n ", existingSetNames)
-	for _, setName := range toAddUpdateSetNames {
+	for setName := range toAddUpdateSetNames {
 		set, exists := iMgr.setMap[setName] // check if the Set exists
 		if !exists {
 			return nil, errors.Errorf(errors.AppendIPSet, false, fmt.Sprintf("ipset %s does not exist", setName))

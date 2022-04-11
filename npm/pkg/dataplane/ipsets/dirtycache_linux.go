@@ -39,6 +39,11 @@ func (dc *dirtyCache) reset() {
 	dc.toDestroyCache = make(map[string]*memberDiff)
 }
 
+func (dc *dirtyCache) resetAddOrUpdateCache() {
+	dc.toCreateCache = make(map[string]*memberDiff)
+	dc.toUpdateCache = make(map[string]*memberDiff)
+}
+
 func (dc *dirtyCache) create(set *IPSet) {
 	// error checking
 	if _, ok := dc.toCreateCache[set.Name]; ok {

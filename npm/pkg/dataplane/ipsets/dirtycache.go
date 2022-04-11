@@ -11,6 +11,8 @@ package ipsets
 type dirtyCacheInterface interface {
 	// reset empties dirty cache
 	reset()
+	// resetAddOrUpdateCache empties the dirty cache of sets to be created or updated
+	resetAddOrUpdateCache()
 	// create will mark the new set to be created.
 	create(set *IPSet)
 	// addMember will mark the set to be updated and track the member to be added (if implemented).

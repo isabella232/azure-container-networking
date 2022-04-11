@@ -18,6 +18,10 @@ func (dc *dirtyCache) reset() {
 	dc.toDeleteCache = make(map[string]struct{})
 }
 
+func (dc *dirtyCache) resetAddOrUpdateCache() {
+	dc.toAddOrUpdateCache = make(map[string]struct{})
+}
+
 func (dc *dirtyCache) create(set *IPSet) {
 	putInCacheAndRemoveFromOther(set, dc.toAddOrUpdateCache, dc.toDeleteCache)
 }
@@ -42,19 +46,19 @@ func putInCacheAndRemoveFromOther(set *IPSet, intoCache, fromCache map[string]st
 }
 
 func (dc *dirtyCache) getSetsToAddOrUpdate() map[string]struct{} {
-	result := make([]string, 0, len(dc.toAddOrUpdateCache))
+	m := make(map[string]struct{}, 0, len(dc.toAddOrUpdateCache))
 	for setName := range dc.toAddOrUpdateCache {
-		result = append(result, setName)
+		m[setName] = struct{}{}
 	}
-	return result
+	return m
 }
 
 func (dc *dirtyCache) getSetsToDelete() map[string]struct{} {
-	result := make([]string, 0, len(dc.toDeleteCache))
+	m := make(map[string]struct{}, 0, len(dc.toDeleteCache))
 	for setName := range dc.toDeleteCache {
-		result = append(result, setName)
+		m[setName] = struct{}{}
 	}
-	return result
+	return m
 }
 
 func (dc *dirtyCache) numSetsToAddOrUpdate() int {
