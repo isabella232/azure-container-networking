@@ -163,7 +163,7 @@ func (iMgr *IPSetManager) calculateNewSetPolicies(networkPolicies []hcn.NetworkP
 
 	// for faster look up changing a slice to map
 	existingSetNames := make(map[string]struct{})
-	for _, setName := range existingSets {
+	for setName := range existingSets {
 		existingSetNames[setName] = struct{}{}
 	}
 	// (TODO) remove this log line later

@@ -2,36 +2,38 @@ package ipsets
 
 import "fmt"
 
-type nameOnlyDirtyCache struct {
+type dirtyCache struct {
 	toAddOrUpdateCache map[string]struct{}
 	toDeleteCache      map[string]struct{}
 }
 
 func newDirtyCache() dirtyCacheMaintainer {
-	return &nameOnlyDirtyCache{
-		toAddOrUpdateCache: make(map[string]struct{}),
-		toDeleteCache:      make(map[string]struct{}),
-	}
+	dc := &dirtyCache{}
+	dc.reset()
+	return dc
 }
 
-func (dc *nameOnlyDirtyCache) reset() {
+func (dc *dirtyCache) reset() {
 	dc.toAddOrUpdateCache = make(map[string]struct{})
 	dc.toDeleteCache = make(map[string]struct{})
 }
 
-func (dc *nameOnlyDirtyCache) create(newSet *IPSet) {
-	putIntoAndRemoveFromOther(newSet, dc.toAddOrUpdateCache, dc.toDeleteCache)
+func (dc *dirtyCache) create(set *IPSet) {
+	putInCacheAndRemoveFromOther(set, dc.toAddOrUpdateCache, dc.toDeleteCache)
+}
+func (dc *dirtyCache) addMember(set *IPSet, member string) {
+	putInCacheAndRemoveFromOther(set, dc.toAddOrUpdateCache, dc.toDeleteCache)
 }
 
-func (dc *nameOnlyDirtyCache) update(originalSet *IPSet) {
-	putIntoAndRemoveFromOther(originalSet, dc.toAddOrUpdateCache, dc.toDeleteCache)
+func (dc *dirtyCache) deleteMember(set *IPSet, member string) {
+	putInCacheAndRemoveFromOther(set, dc.toAddOrUpdateCache, dc.toDeleteCache)
 }
 
-func (dc *nameOnlyDirtyCache) delete(originalSet *IPSet) {
-	putIntoAndRemoveFromOther(originalSet, dc.toDeleteCache, dc.toAddOrUpdateCache)
+func (dc *dirtyCache) destroy(set *IPSet) {
+	putInCacheAndRemoveFromOther(set, dc.toDeleteCache, dc.toAddOrUpdateCache)
 }
 
-func putIntoAndRemoveFromOther(set *IPSet, intoCache, fromCache map[string]struct{}) {
+func putInCacheAndRemoveFromOther(set *IPSet, intoCache, fromCache map[string]struct{}) {
 	if _, ok := intoCache[set.Name]; ok {
 		return
 	}
@@ -39,7 +41,7 @@ func putIntoAndRemoveFromOther(set *IPSet, intoCache, fromCache map[string]struc
 	delete(fromCache, set.Name)
 }
 
-func (dc *nameOnlyDirtyCache) getSetsToAddOrUpdate() []string {
+func (dc *dirtyCache) getSetsToAddOrUpdate() map[string]struct{} {
 	result := make([]string, 0, len(dc.toAddOrUpdateCache))
 	for setName := range dc.toAddOrUpdateCache {
 		result = append(result, setName)
@@ -47,7 +49,7 @@ func (dc *nameOnlyDirtyCache) getSetsToAddOrUpdate() []string {
 	return result
 }
 
-func (dc *nameOnlyDirtyCache) getSetsToDelete() []string {
+func (dc *dirtyCache) getSetsToDelete() map[string]struct{} {
 	result := make([]string, 0, len(dc.toDeleteCache))
 	for setName := range dc.toDeleteCache {
 		result = append(result, setName)
@@ -55,32 +57,36 @@ func (dc *nameOnlyDirtyCache) getSetsToDelete() []string {
 	return result
 }
 
-func (dc *nameOnlyDirtyCache) numSetsToAddOrUpdate() int {
+func (dc *dirtyCache) numSetsToAddOrUpdate() int {
 	return len(dc.toAddOrUpdateCache)
 }
 
-func (dc *nameOnlyDirtyCache) numSetsToDelete() int {
+func (dc *dirtyCache) numSetsToDelete() int {
 	return len(dc.toDeleteCache)
 }
 
-func (dc *nameOnlyDirtyCache) isSetToAddOrUpdate(setName string) bool {
+func (dc *dirtyCache) isSetToAddOrUpdate(setName string) bool {
 	_, ok := dc.toAddOrUpdateCache[setName]
 	return ok
 }
 
-func (dc *nameOnlyDirtyCache) isSetToDelete(setName string) bool {
+func (dc *dirtyCache) isSetToDelete(setName string) bool {
 	_, ok := dc.toDeleteCache[setName]
 	return ok
 }
 
-func (dc *nameOnlyDirtyCache) printAddOrUpdateCache() string {
+func (dc *dirtyCache) printAddOrUpdateCache() string {
 	return fmt.Sprintf("%+v", dc.toAddOrUpdateCache)
 }
 
-func (dc *nameOnlyDirtyCache) printDeleteCache() string {
+func (dc *dirtyCache) printDeleteCache() string {
 	return fmt.Sprintf("%+v", dc.toDeleteCache)
 }
 
-func (dc *nameOnlyDirtyCache) getOriginalMembers(_ string) map[string]struct{} {
+func (dc *dirtyCache) getMembersToAdd(setName string) map[string]struct{} {
+	return nil
+}
+
+func (dc *dirtyCache) getMembersToDelete(setName string) map[string]struct{} {
 	return nil
 }

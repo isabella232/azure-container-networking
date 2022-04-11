@@ -36,7 +36,7 @@ const (
 type IPSetManager struct {
 	iMgrCfg    *IPSetManagerCfg
 	setMap     map[string]*IPSet
-	dirtyCache dirtyCacheMaintainer
+	dirtyCache dirtyCacheInterface
 	ioShim     *common.IOShim
 	sync.Mutex
 }
@@ -231,8 +231,7 @@ func (iMgr *IPSetManager) AddToSets(addToSets []*IPSetMetadata, ip, podKey strin
 		// 2. add ip to the set, and update the pod key
 		_, ok := set.IPPodKey[ip]
 		if !ok {
-			// needs to be called before updating the cache
-			iMgr.modifyCacheForKernelMemberUpdate(set)
+			iMgr.modifyCacheForKernelMemberAdd(set, ip)
 			metrics.AddEntryToIPSet(prefixedName)
 		}
 		set.IPPodKey[ip] = podKey
@@ -281,10 +280,8 @@ func (iMgr *IPSetManager) RemoveFromSets(removeFromSets []*IPSetMetadata, ip, po
 			continue
 		}
 
-		// needs to be called before updating the cache
-		iMgr.modifyCacheForKernelMemberUpdate(set)
-
 		// update the IP ownership with podkey
+		iMgr.modifyCacheForKernelMemberDelete(set, ip)
 		delete(set.IPPodKey, ip)
 		metrics.RemoveEntryFromIPSet(prefixedName)
 	}
@@ -336,10 +333,7 @@ func (iMgr *IPSetManager) AddToLists(listMetadatas, setMetadatas []*IPSetMetadat
 			}
 			member := iMgr.setMap[memberName]
 
-			// needs to be called before updating the cache
-			// second call, third call, etc. for a given list is idempotent
-			iMgr.modifyCacheForKernelMemberUpdate(list)
-
+			iMgr.modifyCacheForKernelMemberAdd(list, member.HashedName)
 			list.MemberIPSets[memberName] = member
 			member.incIPSetReferCount()
 			metrics.AddEntryToIPSet(list.Name)
@@ -396,10 +390,7 @@ func (iMgr *IPSetManager) RemoveFromList(listMetadata *IPSetMetadata, setMetadat
 			continue
 		}
 
-		// needs to be called before updating the cache
-		// second call, third call, etc. for a given list is idempotent
-		iMgr.modifyCacheForKernelMemberUpdate(list)
-
+		iMgr.modifyCacheForKernelMemberDelete(list, member.HashedName)
 		delete(list.MemberIPSets, memberName)
 		member.decIPSetReferCount()
 		metrics.RemoveEntryFromIPSet(list.Name)
@@ -503,7 +494,7 @@ func (iMgr *IPSetManager) shouldBeInKernel(set *IPSet) bool {
 }
 
 func (iMgr *IPSetManager) modifyCacheForKernelRemoval(set *IPSet) {
-	iMgr.dirtyCache.delete(set)
+	iMgr.dirtyCache.destroy(set)
 	/*
 		TODO kernel-based prometheus metrics
 
@@ -520,11 +511,15 @@ func (iMgr *IPSetManager) decKernelReferCountAndModifyCache(member *IPSet) {
 	}
 }
 
-// need to call this before updating the set
-// can be called multiple times
-func (iMgr *IPSetManager) modifyCacheForKernelMemberUpdate(set *IPSet) {
+func (iMgr *IPSetManager) modifyCacheForKernelMemberAdd(set *IPSet, member string) {
 	if iMgr.shouldBeInKernel(set) {
-		iMgr.dirtyCache.update(set)
+		iMgr.dirtyCache.addMember(set, member)
+	}
+}
+
+func (iMgr *IPSetManager) modifyCacheForKernelMemberDelete(set *IPSet, member string) {
+	if iMgr.shouldBeInKernel(set) {
+		iMgr.dirtyCache.deleteMember(set, member)
 	}
 }
 
@@ -532,7 +527,7 @@ func (iMgr *IPSetManager) modifyCacheForKernelMemberUpdate(set *IPSet) {
 // if so will not delete it
 func (iMgr *IPSetManager) sanitizeDirtyCache() {
 	anyProblems := false
-	for _, setName := range iMgr.dirtyCache.getSetsToDelete() {
+	for setName := range iMgr.dirtyCache.getSetsToDelete() {
 		if iMgr.dirtyCache.isSetToAddOrUpdate(setName) {
 			klog.Errorf("[IPSetManager] Unexpected state in dirty cache %s set is part of both update and delete caches", setName)
 			anyProblems = true
