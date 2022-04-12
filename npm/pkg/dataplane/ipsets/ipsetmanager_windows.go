@@ -124,7 +124,7 @@ func (iMgr *IPSetManager) applyIPSets() error {
 		}
 	}
 
-	dc.resetAddOrUpdateCache()
+	iMgr.dirtyCache.resetAddOrUpdateCache()
 
 	if len(setPolicyBuilder.toDeleteSets) > 0 {
 		err = iMgr.modifySetPolicies(network, hcn.RequestTypeRemove, setPolicyBuilder.toDeleteSets)
