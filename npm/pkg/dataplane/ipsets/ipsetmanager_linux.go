@@ -321,7 +321,7 @@ func (iMgr *IPSetManager) fileCreatorForApplyWithSaveFile(maxTryCount int, saveF
 	creator := ioutil.NewFileCreator(iMgr.ioShim, maxTryCount, ipsetRestoreLineFailurePattern) // TODO make the line failure pattern into a definition constant eventually
 
 	// 1. create all sets first so we don't try to add a member set to a list if it hasn't been created yet
-	setsToAddOrUpdate := iMgr.dirtyCache.getSetsToAddOrUpdate()
+	setsToAddOrUpdate := iMgr.dirtyCache.setsToAddOrUpdate()
 	for prefixedName := range setsToAddOrUpdate {
 		set := iMgr.setMap[prefixedName]
 		iMgr.createSetForApply(creator, set)
@@ -355,7 +355,7 @@ func (iMgr *IPSetManager) fileCreatorForApplyWithSaveFile(maxTryCount int, saveF
 		but until then, set A is in use by a kernel component and can't be destroyed.
 	*/
 	// flush all sets first in case a set we're destroying is referenced by a list we're destroying
-	setsToDelete := iMgr.dirtyCache.getSetsToDelete()
+	setsToDelete := iMgr.dirtyCache.setsToDelete()
 	for prefixedName := range setsToDelete {
 		iMgr.flushSetForApply(creator, prefixedName)
 	}
@@ -370,7 +370,7 @@ func (iMgr *IPSetManager) fileCreatorForApply(maxTryCount int) *ioutil.FileCreat
 	creator := ioutil.NewFileCreator(iMgr.ioShim, maxTryCount, ipsetRestoreLineFailurePattern) // TODO make the line failure pattern into a definition constant eventually
 
 	// 1. create all sets first so we don't try to add a member set to a list if it hasn't been created yet
-	setsToAddOrUpdate := iMgr.dirtyCache.getSetsToAddOrUpdate()
+	setsToAddOrUpdate := iMgr.dirtyCache.setsToAddOrUpdate()
 	for prefixedName := range setsToAddOrUpdate {
 		set := iMgr.setMap[prefixedName]
 		iMgr.createSetForApply(creator, set)
@@ -382,12 +382,11 @@ func (iMgr *IPSetManager) fileCreatorForApply(maxTryCount int) *ioutil.FileCreat
 	for prefixedName := range setsToAddOrUpdate {
 		sectionID := sectionID(addOrUpdateSectionPrefix, prefixedName)
 		set := iMgr.setMap[prefixedName]
-		membersToDelete := iMgr.dirtyCache.getMembersToDelete(prefixedName)
-		for member := range membersToDelete {
+		diff := iMgr.dirtyCache.memberDiff(prefixedName)
+		for member := range diff.membersToDelete {
 			iMgr.deleteMemberForApply(creator, set, sectionID, member)
 		}
-		membersToAdd := iMgr.dirtyCache.getMembersToAdd(prefixedName)
-		for member := range membersToAdd {
+		for member := range diff.membersToAdd {
 			iMgr.addMemberForApply(creator, set, sectionID, member)
 		}
 	}
@@ -401,7 +400,7 @@ func (iMgr *IPSetManager) fileCreatorForApply(maxTryCount int) *ioutil.FileCreat
 		but until then, set A is in use by a kernel component and can't be destroyed.
 	*/
 	// flush all sets first in case a set we're destroying is referenced by a list we're destroying
-	setsToDelete := iMgr.dirtyCache.getSetsToDelete()
+	setsToDelete := iMgr.dirtyCache.setsToDelete()
 	for prefixedName := range setsToDelete {
 		iMgr.flushSetForApply(creator, prefixedName)
 	}

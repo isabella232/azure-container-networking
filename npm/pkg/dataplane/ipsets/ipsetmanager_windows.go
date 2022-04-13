@@ -157,7 +157,7 @@ func (iMgr *IPSetManager) calculateNewSetPolicies(networkPolicies []hcn.NetworkP
 	}
 	existingSets, toDeleteSets := iMgr.segregateSetPolicies(networkPolicies, donotResetIPSets)
 	// some of this below logic can be abstracted a step above
-	toAddUpdateSetNames := iMgr.dirtyCache.getSetsToAddOrUpdate()
+	toAddUpdateSetNames := iMgr.dirtyCache.setsToAddOrUpdate()
 	setPolicyBuilder.toDeleteSets = toDeleteSets
 
 	// for faster look up changing a slice to map

@@ -88,16 +88,6 @@ func TestApplyIPSets(t *testing.T) {
 			wantErr:           false,
 		},
 		{
-			name: "set is in both delete and add/update cache",
-			args: args{
-				toAddUpdateSets: []*IPSetMetadata{namespaceSet},
-				toDeleteSets:    []*IPSetMetadata{namespaceSet},
-				commandError:    false,
-			},
-			expectedExecCount: 1,
-			wantErr:           false,
-		},
-		{
 			name: "apply error",
 			args: args{
 				toAddUpdateSets: []*IPSetMetadata{namespaceSet},
@@ -458,17 +448,27 @@ func TestResetIPSetsOnFailure(t *testing.T) {
 	})
 }
 
+// for applyIPSetsWithSave()
 func TestApplyIPSetsSuccessWithoutSave(t *testing.T) {
-	// no sets to add/update, so don't call ipset save
-	calls := []testutils.TestCmd{{Cmd: ipsetRestoreStringSlice}}
+	calls := []testutils.TestCmd{
+		{Cmd: ipsetSaveStringSlice, PipedToCommand: true},
+		{Cmd: []string{"grep", "azure-npm-"}},
+		{Cmd: ipsetRestoreStringSlice},
+		{Cmd: ipsetRestoreStringSlice},
+	}
 	ioshim := common.NewMockIOShim(calls)
 	defer ioshim.VerifyCalls(t, calls)
 	iMgr := NewIPSetManager(applyAlwaysCfg, ioshim)
 
 	// delete a set so the file isn't empty (otherwise the creator won't even call the exec command)
 	iMgr.CreateIPSets([]*IPSetMetadata{TestNSSet.Metadata}) // create so we can delete
+	err := iMgr.applyIPSetsWithSaveFile()
+	require.NoError(t, err)
+	iMgr.clearDirtyCache()
+
+	// no sets to add/update, so don't call ipset save
 	iMgr.DeleteIPSet(TestNSSet.PrefixName, util.SoftDelete)
-	err := iMgr.applyIPSets()
+	err = iMgr.applyIPSetsWithSaveFile()
 	require.NoError(t, err)
 }
 
@@ -665,11 +665,17 @@ func TestDestroy(t *testing.T) {
 	for _, tt := range tests {
 		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
-			// without save file
-			calls := []testutils.TestCmd{fakeRestoreSuccessCommand}
+			calls := []testutils.TestCmd{
+				fakeRestoreSuccessCommand,
+			}
 			ioshim := common.NewMockIOShim(calls)
 			defer ioshim.VerifyCalls(t, calls)
 			iMgr := NewIPSetManager(applyAlwaysCfg, ioshim)
+
+			iMgr.CreateIPSets([]*IPSetMetadata{TestCIDRSet.Metadata})         // create so we can delete
+			iMgr.CreateIPSets([]*IPSetMetadata{TestNestedLabelList.Metadata}) // create so we can delete
+			// clear dirty cache, otherwise a set deletion will be a no-op
+			iMgr.clearDirtyCache()
 
 			// remove some members and destroy some sets
 			require.NoError(t, iMgr.AddToSets([]*IPSetMetadata{TestNSSet.Metadata}, "10.0.0.0", "a"))
@@ -678,16 +684,14 @@ func TestDestroy(t *testing.T) {
 			iMgr.CreateIPSets([]*IPSetMetadata{TestKeyPodSet.Metadata})
 			require.NoError(t, iMgr.AddToLists([]*IPSetMetadata{TestKeyNSList.Metadata}, []*IPSetMetadata{TestNSSet.Metadata, TestKeyPodSet.Metadata}))
 			require.NoError(t, iMgr.RemoveFromList(TestKeyNSList.Metadata, []*IPSetMetadata{TestKeyPodSet.Metadata}))
-			iMgr.CreateIPSets([]*IPSetMetadata{TestCIDRSet.Metadata}) // create so we can delete
 			iMgr.DeleteIPSet(TestCIDRSet.PrefixName, util.SoftDelete)
-			iMgr.CreateIPSets([]*IPSetMetadata{TestNestedLabelList.Metadata}) // create so we can delete
 			iMgr.DeleteIPSet(TestNestedLabelList.PrefixName, util.SoftDelete)
 
 			var creator *ioutil.FileCreator
 			if tt.withSaveFile {
-				creator = iMgr.fileCreatorForApplyWithSaveFile(len(calls), nil)
+				creator = iMgr.fileCreatorForApplyWithSaveFile(1, nil)
 			} else {
-				creator = iMgr.fileCreatorForApply(len(calls))
+				creator = iMgr.fileCreatorForApply(1)
 			}
 			actualLines := testAndSortRestoreFileString(t, creator.ToString())
 
@@ -711,6 +715,52 @@ func TestDestroy(t *testing.T) {
 			require.False(t, wasFileAltered, "file should not be altered")
 		})
 	}
+}
+
+// no save file involved
+func TestDeleteMembers(t *testing.T) {
+	calls := []testutils.TestCmd{
+		fakeRestoreSuccessCommand,
+	}
+	ioshim := common.NewMockIOShim(calls)
+	defer ioshim.VerifyCalls(t, calls)
+	iMgr := NewIPSetManager(applyAlwaysCfg, ioshim)
+	require.NoError(t, iMgr.AddToSets([]*IPSetMetadata{TestNSSet.Metadata}, "1.1.1.1", "a"))
+	require.NoError(t, iMgr.AddToSets([]*IPSetMetadata{TestNSSet.Metadata}, "2.2.2.2", "b"))
+	require.NoError(t, iMgr.AddToSets([]*IPSetMetadata{TestNSSet.Metadata}, "3.3.3.3", "c"))
+	// create to destroy later
+	iMgr.CreateIPSets([]*IPSetMetadata{TestCIDRSet.Metadata})
+	// clear dirty cache, otherwise a set deletion will be a no-op
+	iMgr.clearDirtyCache()
+
+	// will remove this member
+	require.NoError(t, iMgr.RemoveFromSets([]*IPSetMetadata{TestNSSet.Metadata}, "1.1.1.1", "a"))
+	// will add this member
+	require.NoError(t, iMgr.AddToSets([]*IPSetMetadata{TestNSSet.Metadata}, "5.5.5.5", "e"))
+	// won't add/remove this member since the next two calls cancel each other out
+	require.NoError(t, iMgr.AddToSets([]*IPSetMetadata{TestNSSet.Metadata}, "4.4.4.4", "d"))
+	require.NoError(t, iMgr.RemoveFromSets([]*IPSetMetadata{TestNSSet.Metadata}, "4.4.4.4", "d"))
+	// won't add/remove this member since the next two calls cancel each other out
+	require.NoError(t, iMgr.RemoveFromSets([]*IPSetMetadata{TestNSSet.Metadata}, "2.2.2.2", "b"))
+	require.NoError(t, iMgr.AddToSets([]*IPSetMetadata{TestNSSet.Metadata}, "2.2.2.2", "b"))
+	// destroy extra set
+	iMgr.DeleteIPSet(TestCIDRSet.PrefixName, util.SoftDelete)
+
+	expectedLines := []string{
+		fmt.Sprintf("-N %s --exist nethash", TestNSSet.HashedName),
+		fmt.Sprintf("-D %s 1.1.1.1", TestNSSet.HashedName),
+		fmt.Sprintf("-A %s 5.5.5.5", TestNSSet.HashedName),
+		fmt.Sprintf("-F %s", TestCIDRSet.HashedName),
+		fmt.Sprintf("-X %s", TestCIDRSet.HashedName),
+		"",
+	}
+	sortedExpectedLines := testAndSortRestoreFileLines(t, expectedLines)
+	creator := iMgr.fileCreatorForApply(len(calls))
+	actualLines := testAndSortRestoreFileString(t, creator.ToString())
+	dptestutils.AssertEqualLines(t, sortedExpectedLines, actualLines)
+	wasFileAltered, err := creator.RunCommandOnceWithFile("ipset", "restore")
+	require.NoError(t, err, "ipset restore should be successful")
+	require.False(t, wasFileAltered, "file should not be altered")
 }
 
 func TestUpdateWithIdenticalSaveFile(t *testing.T) {
@@ -793,6 +843,10 @@ func TestUpdateWithRealisticSaveFile(t *testing.T) {
 	saveFileString := strings.Join(saveFileLines, "\n")
 	saveFileBytes := []byte(saveFileString)
 
+	iMgr.CreateIPSets([]*IPSetMetadata{TestNestedLabelList.Metadata}) // create so we can delete
+	// clear dirty cache, otherwise a set deletion will be a no-op
+	iMgr.clearDirtyCache()
+
 	require.NoError(t, iMgr.AddToSets([]*IPSetMetadata{TestNSSet.Metadata}, "10.0.0.0", "a"))
 	require.NoError(t, iMgr.AddToSets([]*IPSetMetadata{TestNSSet.Metadata}, "10.0.0.1", "b"))
 	require.NoError(t, iMgr.AddToSets([]*IPSetMetadata{TestNSSet.Metadata}, "10.0.0.2", "c"))
@@ -803,7 +857,6 @@ func TestUpdateWithRealisticSaveFile(t *testing.T) {
 	require.NoError(t, iMgr.AddToLists([]*IPSetMetadata{TestKeyNSList.Metadata}, []*IPSetMetadata{TestNSSet.Metadata, TestKeyPodSet.Metadata}))
 	iMgr.CreateIPSets([]*IPSetMetadata{TestKVNSList.Metadata})
 	require.NoError(t, iMgr.AddToSets([]*IPSetMetadata{TestCIDRSet.Metadata}, "1.2.3.4", "z")) // set not in save file
-	iMgr.CreateIPSets([]*IPSetMetadata{TestNestedLabelList.Metadata})                          // create so we can delete
 	iMgr.DeleteIPSet(TestNestedLabelList.PrefixName, util.SoftDelete)
 
 	creator := iMgr.fileCreatorForApplyWithSaveFile(len(calls), saveFileBytes)
@@ -1341,11 +1394,14 @@ func TestFailureOnFlush(t *testing.T) {
 	saveFileString := strings.Join(saveFileLines, "\n")
 	saveFileBytes := []byte(saveFileString)
 
+	iMgr.CreateIPSets([]*IPSetMetadata{TestCIDRSet.Metadata})  // create so we can delete
+	iMgr.CreateIPSets([]*IPSetMetadata{TestKVPodSet.Metadata}) // create so we can delete
+	// clear dirty cache, otherwise a set deletion will be a no-op
+	iMgr.clearDirtyCache()
+
 	require.NoError(t, iMgr.AddToSets([]*IPSetMetadata{TestNSSet.Metadata}, "10.0.0.0", "a"))     // in kernel already
 	require.NoError(t, iMgr.AddToSets([]*IPSetMetadata{TestKeyPodSet.Metadata}, "10.0.0.0", "a")) // not in kernel yet
-	iMgr.CreateIPSets([]*IPSetMetadata{TestKVPodSet.Metadata})                                    // create so we can delete
 	iMgr.DeleteIPSet(TestKVPodSet.PrefixName, util.SoftDelete)
-	iMgr.CreateIPSets([]*IPSetMetadata{TestCIDRSet.Metadata}) // create so we can delete
 	iMgr.DeleteIPSet(TestCIDRSet.PrefixName, util.SoftDelete)
 
 	creator := iMgr.fileCreatorForApplyWithSaveFile(len(calls), saveFileBytes)
@@ -1394,11 +1450,14 @@ func TestFailureOnDestroy(t *testing.T) {
 	saveFileString := strings.Join(saveFileLines, "\n")
 	saveFileBytes := []byte(saveFileString)
 
+	iMgr.CreateIPSets([]*IPSetMetadata{TestCIDRSet.Metadata})  // create so we can delete
+	iMgr.CreateIPSets([]*IPSetMetadata{TestKVPodSet.Metadata}) // create so we can delete
+	// clear dirty cache, otherwise a set deletion will be a no-op
+	iMgr.clearDirtyCache()
+
 	require.NoError(t, iMgr.AddToSets([]*IPSetMetadata{TestNSSet.Metadata}, "10.0.0.0", "a"))     // in kernel already
 	require.NoError(t, iMgr.AddToSets([]*IPSetMetadata{TestKeyPodSet.Metadata}, "10.0.0.0", "a")) // not in kernel yet
-	iMgr.CreateIPSets([]*IPSetMetadata{TestKVPodSet.Metadata})                                    // create so we can delete
 	iMgr.DeleteIPSet(TestKVPodSet.PrefixName, util.SoftDelete)
-	iMgr.CreateIPSets([]*IPSetMetadata{TestCIDRSet.Metadata}) // create so we can delete
 	iMgr.DeleteIPSet(TestCIDRSet.PrefixName, util.SoftDelete)
 
 	creator := iMgr.fileCreatorForApplyWithSaveFile(len(calls), saveFileBytes)
@@ -1446,6 +1505,9 @@ func TestFailureOnLastLine(t *testing.T) {
 			iMgr := NewIPSetManager(applyAlwaysCfg, ioshim)
 
 			iMgr.CreateIPSets([]*IPSetMetadata{TestCIDRSet.Metadata}) // create so we can delete
+			// clear dirty cache, otherwise a set deletion will be a no-op
+			iMgr.clearDirtyCache()
+
 			iMgr.DeleteIPSet(TestCIDRSet.PrefixName, util.SoftDelete)
 
 			var creator *ioutil.FileCreator

@@ -461,7 +461,7 @@ func (iMgr *IPSetManager) modifyCacheForCacheDeletion(set *IPSet, deleteOption u
 	}
 
 	delete(iMgr.setMap, set.Name)
-	metrics.DecNumIPSets()
+	metrics.DeleteIPSet(set.Name)
 	if iMgr.iMgrCfg.IPSetMode == ApplyAllIPSets {
 		// NOTE: in ApplyAllIPSets mode, if this ipset has never been created in the kernel,
 		// it would be added to the deleteCache, and then the OS would fail to delete it
@@ -527,7 +527,7 @@ func (iMgr *IPSetManager) modifyCacheForKernelMemberDelete(set *IPSet, member st
 // if so will not delete it
 func (iMgr *IPSetManager) sanitizeDirtyCache() {
 	anyProblems := false
-	for setName := range iMgr.dirtyCache.getSetsToDelete() {
+	for setName := range iMgr.dirtyCache.setsToDelete() {
 		if iMgr.dirtyCache.isSetToAddOrUpdate(setName) {
 			klog.Errorf("[IPSetManager] Unexpected state in dirty cache %s set is part of both update and delete caches", setName)
 			anyProblems = true
