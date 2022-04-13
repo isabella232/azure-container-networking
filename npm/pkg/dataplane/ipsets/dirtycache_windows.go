@@ -1,8 +1,6 @@
 package ipsets
 
-import "fmt"
-
-type *memberDiff struct{}
+type memberDiff struct{}
 
 func newMemberDiff() *memberDiff {
 	return &memberDiff{}
