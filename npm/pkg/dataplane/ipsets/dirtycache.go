@@ -16,15 +16,19 @@ import (
 
 	Assumptions:
 	- if the set becomes dirty via update or destroy, then the set WAS in the kernel before
-		- update won't be called unless the set IS in the kernel OR create was called before
-		- destroy won't be called unless the set IS in the kernel OR create was called before
 	- if the set becomes dirty via create, then the set was NOT in the kernel before
-		- create won't be called twice (unless a destroy call comes in between)
+
+	Usage:
+	- create, addMember, deleteMember, and destroy are idempotent
+	- create should not be called if the set becomes dirty via add/delete or the set is removed from the deleteCache via add/update
+	- deleteMember should not be called if the set is in the deleteCache
+	- deleteMember is safe to call on members in the kernel and members added via addMember
+	- deleteMember is also safe to call on members not in the kernel if the set isn't in the kernel yet (became dirty via create)
 
 	Examples of Expected Behavior:
 	- if a set is created and then destroyed, that set will not be in the dirty cache anymore
 	- if a set is updated and then destroyed, that set will be in the delete cache
-	- if a the only operations on a set are adding and removing the same member, the set may still be in the dirty cache, but the member will be untracked
+	- if the only operations on a set are adding and removing the same member, the set may still be in the dirty cache, but the member will be untracked
 */
 type dirtyCacheInterface interface {
 	// reset empties dirty cache
@@ -85,16 +89,13 @@ func (dc *dirtyCache) resetAddOrUpdateCache() {
 }
 
 func (dc *dirtyCache) create(set *IPSet) {
-	// error checking
 	if _, ok := dc.toCreateCache[set.Name]; ok {
-		msg := fmt.Sprintf("create: set %s should not already be in the toCreateCache", set.Name)
-		klog.Error(msg)
-		metrics.SendErrorLogAndMetric(util.IpsmID, msg)
 		return
 	}
+	// error checking
 	if _, ok := dc.toUpdateCache[set.Name]; ok {
-		msg := fmt.Sprintf("create: set %s should not be in the toUpdateCache", set.Name)
-		klog.Error(msg)
+		msg := fmt.Sprintf("create should not be called for set %s since it's in the toUpdateCache", set.Name)
+		klog.Warning(msg)
 		metrics.SendErrorLogAndMetric(util.IpsmID, msg)
 		return
 	}
@@ -113,56 +114,46 @@ func (dc *dirtyCache) create(set *IPSet) {
 // could optimize Linux to remove from toUpdateCache if there were no member diff afterwards,
 // but leaving as is prevents difference between OS caches
 func (dc *dirtyCache) addMember(set *IPSet, member string) {
-	// error checking
-	if dc.isSetToDelete(set.Name) {
-		msg := fmt.Sprintf("addMember: set %s should not be in the toDestroyCache", set.Name)
-		klog.Error(msg)
-		metrics.SendErrorLogAndMetric(util.IpsmID, msg)
-		return
-	}
-
 	diff, ok := dc.toCreateCache[set.Name]
 	if !ok {
 		diff, ok = dc.toUpdateCache[set.Name]
 		if !ok {
-			diff = newMemberDiff()
-			dc.toUpdateCache[set.Name] = diff
+			diff, ok = dc.toDestroyCache[set.Name]
+			if !ok {
+				diff = newMemberDiff()
+			}
 		}
+		dc.toUpdateCache[set.Name] = diff
 	}
+	delete(dc.toDestroyCache, set.Name)
 	diff.addMember(member)
 }
 
 // could optimize Linux to remove from toUpdateCache if there were no member diff afterwards,
 // but leaving as is prevents difference between OS caches
 func (dc *dirtyCache) deleteMember(set *IPSet, member string) {
-	// error checking
+	// error checking #1
 	if dc.isSetToDelete(set.Name) {
-		msg := fmt.Sprintf("deleteMember: set %s should not be in the toDestroyCache", set.Name)
-		klog.Error(msg)
+		msg := fmt.Sprintf("attempting to delete member %s for set %s in the toDestroyCache", member, set.Name)
+		klog.Warning(msg)
 		metrics.SendErrorLogAndMetric(util.IpsmID, msg)
 		return
 	}
-
-	diff, ok := dc.toCreateCache[set.Name]
-	if ok {
+	if diff, ok := dc.toCreateCache[set.Name]; ok {
 		// don't mark a member to be deleted if it never existed in the kernel
 		diff.deleteMemberIfExists(member)
 	} else {
-		diff, ok = dc.toUpdateCache[set.Name]
+		diff, ok := dc.toUpdateCache[set.Name]
 		if !ok {
 			diff = newMemberDiff()
-			dc.toUpdateCache[set.Name] = diff
 		}
+		dc.toUpdateCache[set.Name] = diff
 		diff.deleteMember(member)
 	}
 }
 
 func (dc *dirtyCache) destroy(set *IPSet) {
-	// error checking
 	if dc.isSetToDelete(set.Name) {
-		msg := fmt.Sprintf("destroy: set %s should not already be in the toDestroyCache", set.Name)
-		klog.Error(msg)
-		metrics.SendErrorLogAndMetric(util.IpsmID, msg)
 		return
 	}
 
@@ -248,16 +239,13 @@ func (dc *dirtyCache) printDeleteCache() string {
 }
 
 func (dc *dirtyCache) memberDiff(setName string) *memberDiff {
-	diff, ok := dc.toCreateCache[setName]
-	if ok {
+	if diff, ok := dc.toCreateCache[setName]; ok {
 		return diff
 	}
-	diff, ok = dc.toUpdateCache[setName]
-	if ok {
+	if diff, ok := dc.toUpdateCache[setName]; ok {
 		return diff
 	}
-	diff, ok = dc.toDestroyCache[setName]
-	if ok {
+	if diff, ok := dc.toDestroyCache[setName]; ok {
 		return diff
 	}
 	return newMemberDiff()

@@ -19,8 +19,8 @@ type testDiff struct {
 }
 
 const (
-	ip1    = "1.2.3.4"
-	ip2    = "4.4.4.4"
+	ip1    = "1.1.1.1"
+	ip2    = "2.2.2.2"
 	podKey = "pod1"
 )
 
@@ -99,27 +99,42 @@ func TestDirtyCacheCreateWithMembers(t *testing.T) {
 	})
 }
 
-func TestDirtyCacheCreateIdempotence(t *testing.T) {
+func TestDirtyCacheCreateAfterAddOrDelete(t *testing.T) {
 	set1 := NewIPSet(NewIPSetMetadata("set1", Namespace))
 	dc := newDirtyCache()
-	dc.create(set1)
-	// already created: this would create an error log
-	dc.create(set1)
-	assertDirtyCache(t, dc, &dirtyCacheResults{
-		toCreate: map[string]testDiff{
-			set1.Name: {},
-		},
-	})
-
-	dc.reset()
 	dc.addMember(set1, ip1)
-	// already updated: this would create an error log
+	// already updated: this would create a warning log
 	dc.create(set1)
 	assertDirtyCache(t, dc, &dirtyCacheResults{
 		toUpdate: map[string]testDiff{
 			set1.Name: {
 				toAdd: []string{ip1},
 			},
+		},
+	})
+
+	dc.reset()
+	dc.deleteMember(set1, ip1)
+	// already updated: this would create a warning log
+	dc.create(set1)
+	assertDirtyCache(t, dc, &dirtyCacheResults{
+		toUpdate: map[string]testDiff{
+			set1.Name: {
+				toDelete: []string{ip1},
+			},
+		},
+	})
+}
+
+func TestDirtyCacheCreateIdempotence(t *testing.T) {
+	set1 := NewIPSet(NewIPSetMetadata("set1", Namespace))
+	dc := newDirtyCache()
+	dc.create(set1)
+	// already created: no warning log
+	dc.create(set1)
+	assertDirtyCache(t, dc, &dirtyCacheResults{
+		toCreate: map[string]testDiff{
+			set1.Name: {},
 		},
 	})
 }
@@ -248,7 +263,7 @@ func TestDirtyCacheAddIdempotence(t *testing.T) {
 	set1 := NewIPSet(NewIPSetMetadata("set1", Namespace))
 	dc := newDirtyCache()
 	dc.addMember(set1, ip1)
-	// no error log
+	// no warning log
 	dc.addMember(set1, ip1)
 	assertDirtyCache(t, dc, &dirtyCacheResults{
 		toUpdate: map[string]testDiff{
@@ -289,13 +304,15 @@ func TestDirtyCacheAddAfterDelete(t *testing.T) {
 func TestDirtyCacheAddAfterDestroy(t *testing.T) {
 	set1 := NewIPSet(NewIPSetMetadata("set1", Namespace))
 	dc := newDirtyCache()
-	dc.destroy(set1)
-	dc.addMember(set1, ip1)
-	// do nothing and create an error log
 	dc.deleteMember(set1, ip1)
+	dc.destroy(set1)
+	dc.addMember(set1, ip2)
 	assertDirtyCache(t, dc, &dirtyCacheResults{
-		toDestroy: map[string]testDiff{
-			set1.Name: {},
+		toUpdate: map[string]testDiff{
+			set1.Name: {
+				toAdd:    []string{ip2},
+				toDelete: []string{ip1},
+			},
 		},
 	})
 }
@@ -356,12 +373,15 @@ func TestDirtyCacheDeleteAfterAdd(t *testing.T) {
 func TestDirtyCacheDeleteAfterDestroy(t *testing.T) {
 	set1 := NewIPSet(NewIPSetMetadata("set1", Namespace))
 	dc := newDirtyCache()
-	dc.destroy(set1)
-	// do nothing and create an error log
 	dc.deleteMember(set1, ip1)
+	dc.destroy(set1)
+	// do nothing and create a warning log
+	dc.deleteMember(set1, ip2)
 	assertDirtyCache(t, dc, &dirtyCacheResults{
 		toDestroy: map[string]testDiff{
-			set1.Name: {},
+			set1.Name: {
+				toDelete: []string{ip1},
+			},
 		},
 	})
 }
