@@ -31,6 +31,8 @@ const (
 )
 
 var (
+	errBenignIPTablesFailure = errors.New("benign iptables failure")
+
 	// Must loop through a slice because we need a deterministic order for fexec commands for UTs.
 	iptablesAzureChains = []string{
 		util.IptablesAzureChain,
@@ -291,7 +293,7 @@ func (pMgr *PolicyManager) ignoreErrorsAndRunIPTablesCommand(ignored []*exitErro
 		msgStr := strings.TrimSuffix(string(output), "\n")
 		for _, info := range ignored {
 			if errCode == info.exitCode && strings.Contains(msgStr, info.msg) {
-				return errCode, fmt.Errorf("not able to run iptables command [%s %s] due to benign Stderr: [%s]", util.Iptables, allArgsString, msgStr)
+				return errCode, fmt.Errorf("not able to run iptables command [%s %s] due to benign Stderr: [%s]: %w", util.Iptables, allArgsString, msgStr, errBenignIPTablesFailure)
 			}
 		}
 		if errCode > 0 {
