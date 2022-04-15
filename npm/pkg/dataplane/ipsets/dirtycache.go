@@ -141,7 +141,7 @@ func (dc *dirtyCache) deleteMember(set *IPSet, member string) {
 	}
 	if diff, ok := dc.toCreateCache[set.Name]; ok {
 		// don't mark a member to be deleted if it never existed in the kernel
-		diff.deleteMemberIfExists(member)
+		diff.removeMemberFromDiffToAdd(member)
 	} else {
 		diff, ok := dc.toUpdateCache[set.Name]
 		if !ok {
@@ -231,7 +231,7 @@ func (dc *dirtyCache) printAddOrUpdateCache() string {
 	for setName, diff := range dc.toUpdateCache {
 		toUpdate = append(toUpdate, fmt.Sprintf("%s: %+v", setName, diff))
 	}
-	return fmt.Sprintf("[to create: %+v], [to update: %+v]", strings.Join(toCreate, ","), strings.Join(toUpdate, ","))
+	return fmt.Sprintf("to create: [%+v], to update: [%+v]", strings.Join(toCreate, ","), strings.Join(toUpdate, ","))
 }
 
 func (dc *dirtyCache) printDeleteCache() string {

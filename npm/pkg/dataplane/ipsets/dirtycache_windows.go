@@ -18,7 +18,7 @@ func (diff *memberDiff) deleteMember(member string) {
 	// no-op
 }
 
-func (diff *memberDiff) deleteMemberIfExists(member string) {
+func (diff *memberDiff) removeMemberFromDiffToAdd(member string) {
 	// no-op
 }
 

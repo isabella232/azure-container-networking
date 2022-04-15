@@ -74,7 +74,7 @@ func (iMgr *IPSetManager) Reconcile() {
 	}
 	numRemovedSets := originalNumSets - len(iMgr.setMap)
 	if numRemovedSets > 0 {
-		klog.Infof("[IPSetManager] removed %d empty/unreferenced ipsets, updating toDeleteCache (in Linux, includes original members) to: %+v", numRemovedSets, iMgr.dirtyCache.printDeleteCache())
+		klog.Infof("[IPSetManager] removed %d empty/unreferenced ipsets, updating toDeleteCache to: %+v", numRemovedSets, iMgr.dirtyCache.printDeleteCache())
 	}
 }
 
@@ -412,7 +412,7 @@ func (iMgr *IPSetManager) ApplyIPSets() error {
 	}
 
 	klog.Infof(
-		"[IPSetManager] dirty caches (in Linux, includes original members). toAddUpdateCache: %s \ntoDeleteCache: %s",
+		"[IPSetManager] dirty caches. toAddUpdateCache: %s, toDeleteCache: %s",
 		iMgr.dirtyCache.printAddOrUpdateCache(), iMgr.dirtyCache.printDeleteCache(),
 	)
 	iMgr.sanitizeDirtyCache()

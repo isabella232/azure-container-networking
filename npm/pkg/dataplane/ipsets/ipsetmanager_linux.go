@@ -245,6 +245,7 @@ example where every set in add/update cache should have ip 1.2.3.4 and 2.3.4.5:
 		-X set-to-delete3
 		-X set-to-delete1
 */
+// unused currently, but may be used later for reconciling with the kernel
 func (iMgr *IPSetManager) applyIPSetsWithSaveFile() error {
 	var saveFile []byte
 	var saveError error

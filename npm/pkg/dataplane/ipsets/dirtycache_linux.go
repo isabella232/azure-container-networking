@@ -50,7 +50,7 @@ func (diff *memberDiff) deleteMember(member string) {
 	}
 }
 
-func (diff *memberDiff) deleteMemberIfExists(member string) {
+func (diff *memberDiff) removeMemberFromDiffToAdd(member string) {
 	delete(diff.membersToAdd, member)
 }
 
